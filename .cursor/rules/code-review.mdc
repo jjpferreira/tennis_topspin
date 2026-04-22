@@ -1,0 +1,17 @@
+---
+description: When to run a code review — use the code-review skill and its output format
+alwaysApply: true
+---
+
+# Code Review — Use the Skill
+
+When **any** of these apply, read and follow **`.cursor/skills/skillcodereview/SKILL.md`** for the full procedure and **mandatory output format**:
+
+- User says "code review", "review this code", "PR review"
+- Reviewing pull requests or code changes
+- Refactoring, designing, or validating new features
+- Assessing architectural decisions or identifying technical debt
+
+**Do not** improvise a code review. Use the skill's focus areas (correctness, maintainability, architecture, error handling), severity levels (Critical / Important / Optional), and required output structure (Summary → Critical → Important → Optional → Overall Recommendation).
+
+**Escalation**: If the code involves auth, payments, crypto, webhooks, or sensitive integrations, flag it and recommend the **security-review** skill (`.cursor/skills/skillscurityreview/SKILL.md`) for a dedicated security pass.

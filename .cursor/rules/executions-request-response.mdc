@@ -1,0 +1,61 @@
+---
+description: When creating a new Workflow Step, ensure Executions > steps show Request and Response like other steps
+globs: workflow/workflow-designer/src/components/ExecutionsView.tsx,workflow/micro-services/workflow-engine/src/main/java/**/*StepExecutor.java,_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md
+alwaysApply: false
+---
+
+# Executions Request/Response for New Steps
+
+When you **add a new workflow step type** that runs in the engine and appears in **Executions > steps**, you must ensure **Request** and **Response** are shown there following the same pattern as existing steps (e.g. HTTP, AI, RAG, PDF_GENERATE, OCR_EXTRACT, SLACK).
+
+## 1. Backend (step executor)
+
+- In the step executor’s `outputData`, **always** put:
+  - **`request`**: object with inputs used for the run (e.g. stepId, stepType, main parameters, options, timestamp).
+  - **`response`**: object with result (e.g. statusCode, success, result payload or error message, timestamp).
+- On **errors**, still set both `request` and `response` in the same structure (e.g. `response: { statusCode: 400/408/500, success: false, error: "message" }`).
+- **Reference:** `OcrExtractStepExecutor.java` (buildRequest, outputData.put("request", request), outputData.put("response", response)), and other executors that write request/response to outputData.
+
+## 2. Frontend (ExecutionsView)
+
+In **`ExecutionsView.tsx`**, for the new step type:
+
+1. **Step-type detection**
+   - Where steps are allowed to render with null/empty `outputData`, add the new step type (e.g. `isXxxStepType`) so Request/Response sections still render (with placeholders if needed).
+   - Where “force show Request/Response” is applied (e.g. VECTOR_SEARCH, RAG, PDF_GENERATE, OCR_EXTRACT, SLACK), add the new step type so the Request and Response sections **always** show.
+
+2. **Request section**
+   - Include the new step type in the condition that decides whether to show the “Request” block (same list as HTTP, AI, RAG, VECTOR_SEARCH, PDF_GENERATE, OCR_EXTRACT, SLACK).
+   - In the inner “force show” check, include the new step type so the section is shown even when outputData is null.
+   - Add a **toggle key** for the new step (e.g. `xxx-request`).
+   - Set the **section title** (e.g. “OCR Request”) and **styling** (e.g. teal: `bg-teal-500`, `bg-teal-50 border-teal-200`) to match the step’s theme.
+
+3. **Response section**
+   - Same as Request: add the new step type to the “show Response” condition and to the “force show” logic.
+   - Add toggle key (e.g. `xxx-response`), title (e.g. “OCR Response”), and the same color/styling as the step (success vs error if applicable).
+
+4. **Don’t treat as HTTP**
+   - In the logic that classifies steps (e.g. “is this HTTP?”), exclude the new step type so it is not treated as a generic HTTP step (same list as SQS, AI, DATATABLE, DATABASE, RAG, VECTOR_SEARCH, PDF_GENERATE, OCR_EXTRACT).
+
+5. **Grid + JSON for tabular/structured data (where appropriate)**
+   - If the step's **response** (or **request**) contains **tabular or list-of-objects data** (e.g. an array of `{ name, value }`, rows, or key-value pairs), show it with a **Grid / JSON toggle** instead of raw JSON only.
+   - **Pattern:** Reuse the same approach as **VARIABLES** (Variables Response) and **DATATABLE** (e.g. Row Data, Query Results):
+     - **State:** `getDatatableViewMode(stepKey, section)` and `setDatatableViewModeFor(stepKey, section, 'table' | 'json')` with a unique `section` (e.g. `'variables-response'`, `'datatable-result'`).
+     - **UI:** Two buttons: **Grid** (table icon) and **JSON** (braces icon); same styling as the step's theme (e.g. emerald for VARIABLES, green for DATATABLE).
+     - **Grid view:** Render the array as an HTML table (columns = union of keys or explicit e.g. `name` / `value`); use `renderCell()` for cell values.
+     - **JSON view:** Render `JSON.stringify(data, null, 2)` in a `<pre>`; optional click-to-open in JSON editor (no extra "Open in JSON Editor" link required next to the buttons).
+   - **When to use:** Response (or request) has a single dominant array/list of objects (e.g. `response.variablesSet`, `outputData.rows`, `outputData.row`). Do not add Grid/JSON for free-form nested JSON that doesn't map to a simple table.
+   - **Reference:** In `ExecutionsView.tsx`, search for `variables-response`, `getDatatableViewMode`, and `datatable-result` to see the full pattern.
+
+**Reference:** Search in `ExecutionsView.tsx` for `OCR_EXTRACT` / `isOcrExtractStepType` and `PDF_GENERATE` to see all places that need the new step type (null outputData handling, Request visibility/force-show/title/key/styling, Response visibility/force-show/title/key/styling).
+
+## Checklist for a new step
+
+- [ ] Executor writes `request` and `response` into `outputData` on success and on error.
+- [ ] ExecutionsView: new step type included where outputData may be null/empty so the step still renders.
+- [ ] ExecutionsView: new step type in “show Request” and “force show Request” and in Request title/key/styling.
+- [ ] ExecutionsView: new step type in “show Response” and “force show Response” and in Response title/key/styling.
+- [ ] ExecutionsView: new step type excluded from generic “HTTP” classification where appropriate.
+- [ ] **If response/request is tabular (array of objects):** Use Grid + JSON toggle per section 5; do not add a separate "Open in JSON Editor" link next to the Grid/JSON buttons.
+
+This keeps Executions > steps consistent: every such step shows Request and Response in the same way as HTTP, AI, RAG, PDF_GENERATE, OCR_EXTRACT, and SLACK; steps with list/table data use the Grid/JSON pattern like VARIABLES and DATATABLE.

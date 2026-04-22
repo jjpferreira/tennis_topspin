@@ -1,0 +1,36 @@
+---
+description: When using configurable API base URL (baseUrl) in workflow-designer, do not treat empty string as "no URL" — prod often uses relative URLs ('').
+alwaysApply: true
+---
+
+# API base URL — empty string is valid (relative URLs)
+
+**Context:** In the workflow-designer (and any frontend that calls the workflow-engine with a configurable base URL), the API base URL can be **empty string** in production when the app uses **relative URLs** (same origin). Treating `''` as "no URL" and skipping the request causes features to work locally but not in prod (e.g. Messages tab, Manage messages list).
+
+## Rule
+
+When guarding or using **baseUrl** (or equivalent from config store / `getDefaultApiBaseUrl()`) before calling the workflow-engine API:
+
+1. **Do not** bail on empty string:
+   - **Wrong:** `if (!baseUrl) return` or `if (!baseUrl || !other) return` — this skips the request when `baseUrl === ''`.
+   - **Right:** Only skip when the value is explicitly missing: `if (baseUrl == null) return`. Use `baseUrl == null` so that `''` is allowed.
+
+2. **When calling URL builders or API helpers**, pass a string: use `baseUrl ?? ''` so that `null`/`undefined` becomes `''` and `buildApiUrl('', path)` produces a relative path (e.g. `/api/v1/announcements`).
+
+3. **Apply consistently** for all flows that depend on the same base URL: fetch list, fetch item, create, update, delete, dismiss, etc. If one flow uses `!baseUrl` and another uses `baseUrl == null`, the former will silently no-op in prod when baseUrl is `''`.
+
+## Example (TaskInboxPage / announcements)
+
+```ts
+// Fetch list — allow empty string so relative URL is used in prod
+if (baseUrl == null) return
+const list = await listAllAnnouncements(baseUrl ?? '')
+
+// Create/update/delete — already safe if using baseUrl ?? ''
+await createAnnouncement(baseUrl ?? '', body)
+```
+
+## Reference
+
+- **FEAT-183:** Messages tab and Manage messages both had to use `baseUrl == null` (not `!baseUrl`) so that in prod, when `configApiUrl` is unset and `getDefaultApiBaseUrl()` returns `''`, requests still run via relative URL.
+- **Troubleshooting:** `workflow-engine/docs/feat183_messages_local_vs_prod.md` (section A for Manage list).

@@ -1,0 +1,31 @@
+---
+description: GOLDEN RULE — Never edit an applied Flyway migration. Create a new one. Breaking this crashes the app.
+alwaysApply: true
+---
+
+# Flyway — Golden Rule (MANDATORY — never break)
+
+**NEVER edit a migration file that has already been applied.** No exceptions. This rule is non-negotiable.
+
+Any `V*.sql` under any `db/migration/` in this repo (workflow-engine, template-library, or other services) must **never** be modified after it has been run in any environment (local, CI, staging, prod). Changing an applied migration changes its checksum and **crashes the application** on startup (`FlywayValidateException: Migration checksum mismatch`). The only fix is `flyway:repair`, which is a band-aid; the correct behavior is to never put ourselves in that position.
+
+## Mandatory check before touching any migration
+
+Before you **edit** any file matching `**/db/migration/V*.sql`:
+
+1. **Is this a NEW file** (you are creating it in this session)? → Allowed.
+2. **Is this an EXISTING file** (it already exists in the repo)? → **STOP. Do not edit.** Assume it has been or will be applied. **Create a new migration** with the next version number instead.
+
+If in doubt, the answer is: **do not edit — add a new migration.**
+
+## What to do instead
+
+- **Need to change schema or seed data that an existing migration introduced?** → **Create a new migration** with the next available version (e.g. V1093, V33). Put the change there. Leave every existing `V*.sql` file **completely unchanged**.
+- **User or task says "update migration X" or "fix migration V1089"?** → Respond that you will **add a new migration** that applies the fix (e.g. an UPDATE or extra INSERT). Do not edit the old file.
+- Treat "should I change this migration?" as **no**. Always add a new one.
+
+## Override
+
+This rule **overrides** any request to "update", "fix", or "edit" an existing migration file. If asked to change an existing migration, reply that the golden rule forbids it and that you will implement the change in a **new** migration instead—then do that.
+
+**We do not break this rule. Never again.**

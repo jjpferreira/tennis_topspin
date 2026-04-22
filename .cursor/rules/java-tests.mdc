@@ -1,0 +1,47 @@
+---
+description: When Java core code is modified or generated, generate or update the relevant tests following best practices
+globs: workflow/**/src/main/java/**/*.java
+alwaysApply: false
+---
+
+# Java Tests — Generate Tests When Core Code Changes
+
+**When you add or modify Java code under `src/main/java`**, you **must** also add or update the **relevant tests** so that changes are covered by automated tests. Do not leave new or modified production code without corresponding tests.
+
+## When this applies
+
+- You create or edit any `.java` file under `**/src/main/java/**` (controllers, services, repositories, providers, domain logic, etc.).
+- You are asked to "add tests", "write tests for this", or "generate tests".
+
+## What to do
+
+1. **Identify the test scope** — For each new or modified production class, determine the right test type and location:
+   - **Unit tests**: Same package under `src/test/java` (e.g. `service/FooService.java` → `service/FooServiceTest.java`).
+   - **Integration tests**: For APIs, DB, or cross-component behaviour, add or update tests in `integration/` or the appropriate test package.
+
+2. **Create or update the test class** — Use the same package and naming as production: `*Test` for unit tests, `*IntegrationTest` for integration tests when appropriate.
+
+3. **Follow best practices**:
+   - **JUnit 5** (Jupiter): `@Test`, `@BeforeEach`, `@DisplayName`, `Assertions.*`.
+   - **Naming**: Test method names should describe behaviour, e.g. `shouldReturnEmptyWhenNoWorkflows()`, `shouldThrowWhenTemplateKindIsNotWorkflow()`.
+   - **Arrange–Act–Assert**: Structure each test clearly: set up, call the code under test, assert outcomes.
+   - **Mock external dependencies**: Use Mockito (`@Mock`, `@InjectMocks`, `when(...).thenReturn(...)`) for repositories, REST clients, and other collaborators in unit tests.
+   - **Cover main paths and important edge cases**: Happy path, null/empty inputs, validation errors, and error paths where the production code throws or returns an error.
+   - **Integration tests**: Use `@SpringBootTest` or slice tests (`@WebMvcTest`, `@DataJpaTest`) when testing controllers, persistence, or full flows; keep them focused and stable.
+
+4. **Run tests** — After adding or changing tests, run the relevant test class or suite (e.g. `mvn test -Dtest=FooServiceTest`) and fix any failures.
+
+## Quick reference
+
+| Production code              | Test location / type                    |
+|-----------------------------|------------------------------------------|
+| `service/XService.java`     | `service/XServiceTest.java` (unit)       |
+| `controllers/XController.java` | `controllers/XControllerTest.java` or integration test |
+| `provider/.../XExecutor.java` | `provider/.../strategy/unit/XExecutorTest.java` or existing strategy test |
+| New API or workflow path   | Add or extend `integration/WorkflowApiIntegrationTest` or similar |
+
+Do not skip tests for "small" changes; even small changes can introduce regressions. If a test already exists, update it to reflect the new or modified behaviour.
+
+## Related
+
+- **backend-recompile.mdc** — After modifying Java source files, run `mvn clean compile -DskipTests -q` before restarting the backend or running tests. Maven's incremental compiler can silently use stale bytecode.

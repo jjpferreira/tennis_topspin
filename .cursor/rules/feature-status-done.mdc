@@ -1,0 +1,30 @@
+# Feature Status — Done Column Terminology
+
+When the user says any of the following, they mean to set the feature status to the **Done** column (internally `DONE`):
+
+- "move to done"
+- "mark as done"
+- "complete"
+- "mark as complete"
+- "completed"
+- "finish"
+- "mark as finished"
+
+## Implementation
+
+1. **In `FEATURES_AND_IDEAS.md`:** Use `**Status:** [COMPLETED]` in the feature metadata line (parser handles this)
+2. **In Kanban:** The internal column is `DONE` — any `COMPLETED` status is normalized to `DONE`
+3. **Parser output:** The `parse_features_md.py` script outputs `"status": "COMPLETED"`, which Kanban normalizes to `DONE`
+
+## Column Labels
+
+| Internal Status | Column Label | User Says |
+|-----------------|--------------|-----------|
+| `IDEA` | 💡 Idea | "idea", "new" |
+| `PLANNED` | 📋 Planned | "planned", "backlog" |
+| `IN-PROGRESS` | 🔄 In progress | "in progress", "wip", "working on" |
+| `DONE` | ✅ Done | "done", "complete", "finished" |
+| `BUG` | 🐛 Bug | "bug" |
+| `CANCELLED` | ❌ Cancelled | "cancelled", "cancel" |
+
+**Note:** The Kanban uses `DONE` internally. Any `COMPLETED` status from the parser is automatically normalized to `DONE` for display and filtering.

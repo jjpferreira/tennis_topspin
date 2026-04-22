@@ -1,0 +1,38 @@
+---
+description: "Variables you can use in this step" — show step name once, then only the actual variable names (not full {{stepId.xxx}} in the UI)
+globs: workflow/workflow-designer/src/components/PropertiesPanel.tsx
+alwaysApply: false
+---
+
+# Previous Variables UI — Step Name Once, Variable Names Only
+
+**When a step shows "Variables you can use in this step"** (upstream step outputs + workflow global variables), the UI **must** follow this pattern so users see a clean list without repeating the step id in every chip.
+
+## Rule
+
+1. **Step name once** — Under "From previous steps", show each **upstream step name** (e.g. "Load document") **once** as a heading.
+2. **Variable names only** — Under that heading, list only the **actual variable part**, not the full `{{stepId.outputData.text}}` string:
+   - For step outputs like `{{load-document.outputData.text}}` → display **`outputData.text`** (the part after the first `.`).
+   - For VARIABLES-step names like `{{myVar}}` → display **`myVar`** (no dot, so show the whole name).
+3. **Workflow variables** — For globals, display the **variable name** only (e.g. **`apiKey`**), not `{{apiKey}}`.
+4. **Copy and tooltip** — On click, **copy the full** `{{...}}` string to the clipboard so paste works. Use `title={fullValue}` so hover shows the full expression.
+
+## Implementation
+
+- **Helper:** In PropertiesPanel, use **`variableDisplayLabel(full)`** for display:
+  - Strip `{{` and `}}` from `full`, then if the inner string contains a `.`, show only the part **after the first `.`**; otherwise show the whole inner string.
+- **Data:** Reuse **`usefulVariablesList`** (`fromSteps` + `globalNames`). Each `fromSteps` entry has `stepLabel` and `variables` (array of full strings like `{{stepId.outputData.text}}`).
+- **Rendering:** For each variable in `variables`, render the button/label with `variableDisplayLabel(v)` and keep `title={v}`; on click copy `v`. For workflow variables, render `name` and copy `{{${name}}}`.
+
+## Where this applies
+
+Any step configuration block that includes a collapsible **"Variables you can use in this step"** section (e.g. CHOICE, HTTP, ENCRYPT_DECRYPT, debug/snapshot). When **adding** such a section to a new step, follow this rule.
+
+## Reference
+
+- **PropertiesPanel.tsx:** Search for `variableDisplayLabel`, `usefulVariablesList.fromSteps.map`, and "Variables you can use in this step". Current implementations: CHOICE, HTTP Request, Encrypt/Decrypt, and the debug "Previous variables" block.
+
+## Related
+
+- **new-steps-output-variables-and-test.mdc** — Output Variables (what this step *produces*); **previous-variables** is what this step *can consume* from upstream and workflow globals.
+- **new-workflow-step-left-menu-checklist.mdc** — When adding a step that accepts template/expression input (e.g. URLs, body, passphrase), add "Variables you can use" and follow this rule.

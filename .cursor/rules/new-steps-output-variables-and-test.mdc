@@ -1,0 +1,57 @@
+---
+description: When adding new workflow steps or integrations — Output Variables and Test button are required where applicable; follow this rule together with the new-workflow-step-left-menu-checklist
+globs: workflow/workflow-designer/src/components/PropertiesPanel.tsx,workflow/workflow-designer/src/components/Sidebar.tsx,workflow/workflow-designer/src/utils/stepOutputVariables.ts,_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md,_docs/product/guides/HOW_TO_ADD_A_CUSTOM_INTEGRATION.md
+alwaysApply: false
+---
+
+# New Steps & Integrations — Output Variables and Test Button
+
+**Rule:** When you add a **new workflow step** or **new integration** that appears in the designer (Sidebar, Properties panel, backend executor), you **MUST**:
+
+1. **Follow the full checklist** in **`.cursor/rules/new-workflow-step-left-menu-checklist.mdc`** (visibility, left menu, configStore, PropertiesPanel config, Output Variables, Test button, backend wiring).
+2. **Implement the requirements below** for Output Variables and Test button wherever they apply (step produces context/outputData, or step can be validated in isolation). **Configurable steps** (e.g. VARIABLES, OCR_EXTRACT, PDF_EXTRACT, CRAWL_*) **must** have a **Test button** so users can validate the step before running the full workflow.
+
+Do not ship a new step or integration without completing the applicable items in both rules. Say **"new step"**, **"new integration"**, or **"add step X"** and open Sidebar/PropertiesPanel or the guides so these rules are in context.
+
+## 1. Output Variables (required when the step produces context or outputData)
+
+If the step **writes to workflow context** or **returns structured output** (e.g. `outputData`, context variables for downstream steps):
+
+- **Add an "Output Variables" section** in the Properties panel (only when this step is selected).
+- **Pattern:** Collapsible block (toggle state e.g. `showXxxOutputVariables`) with:
+  - Header: "Output Variables" + icon (e.g. `Code`) + chevron; use the step’s color family (e.g. teal, rose).
+  - When open: a **table** (Variable | Type | Description) listing:
+    - **Context variables** (e.g. `{{extractedText}}`, `{{ocrPageCount}}`).
+    - **Step output paths** (e.g. `{{stepId.outputData.text}}`, `{{stepId.outputData}}`).
+  - Short **footer note** on how to use them (e.g. "Use `{{extractedText}}` in TEXT_CHUNK").
+- **Reference implementations:** "DOCUMENT_LOAD Output Variables" and "OCR_EXTRACT Output Variables" in `PropertiesPanel.tsx`.
+
+Also add the step type to **`stepOutputVariables.ts`** (`getOutputVariablePaths(stepType)`) so variable pickers and docs stay in sync.
+
+## 2. Test Button (required when the step can be validated in isolation)
+
+If the step **can be tested** without running the full workflow (e.g. load document, run OCR, send Slack message):
+
+- **Backend:** Add a test endpoint, e.g. `POST /api/v1/workflows/steps/<step-kebab>/test`, that:
+  - Accepts the same parameters as the step (and optional `variables` for template processing).
+  - Builds a temporary step and runs the executor (or a minimal validation path).
+  - Returns `{ success, ...result }` or `{ success: false, error }`. Do not expose secrets.
+  - Injects the step executor as `Optional<XxxStepExecutor>` in the controller; if absent, return 500 with a clear message.
+- **Frontend:** In the Properties panel for this step:
+  - **State:** `xxxTestLoading`, `xxxTestResponse`, `xxxTestError`.
+  - **Callback:** `testXxx` that POSTs current `formData.parameters` (and global variables if needed) to the test endpoint.
+  - **UI:** "Test Xxx" button (disabled when loading or when required params are missing) and, below it, success (e.g. green box with result) / error (red box) result.
+- **Reference implementations:** "Test Document Load" and "Test OCR Extract" in `PropertiesPanel.tsx` and `WorkflowController.java` (`/steps/document-load/test`, `/steps/ocr-extract/test`).
+
+## Where this is documented
+
+- **Left sidebar / new step:** `_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md` — sections **4a (Output Variables)** and **4b (Test button)**, and summary checklist rows 4a and 4b.
+- **Custom integration:** `_docs/product/guides/HOW_TO_ADD_A_CUSTOM_INTEGRATION.md` — section **5** steps 5–6 (Output variables, Test button) and checklist.
+
+**Reference implementations:** DOCUMENT_LOAD, OCR_EXTRACT, CRAWL_START (Output Variables + Test) in `PropertiesPanel.tsx`; test endpoints in `WorkflowController.java`.
+
+**Executions Request/Response:** For **every** new step, ensure **Request** and **Response** are shown in Executions > steps (backend: put `request` and `response` in outputData; frontend: add the step type in `ExecutionsView.tsx`). See **`.cursor/rules/executions-request-response.mdc`** and checklist row 12 in **new-workflow-step-left-menu-checklist.mdc**.
+
+**User copy:** All labels, variable names, and descriptions in the Output Variables section and Test button UI must be **professional, error-free, and free of spelling mistakes**. See **`.cursor/rules/step-properties-user-copy.mdc`**.
+
+**Previous variables (inputs):** When a step has parameters that accept template/expression input (e.g. URL, body, passphrase), add "Variables you can use in this step" and follow **`.cursor/rules/previous-variables-ui.mdc`** — step name once, then only the actual variable names in the list (not full `{{stepId.xxx}}`); copy and tooltip use the full value.

@@ -1,0 +1,23 @@
+---
+description: Dashboard is always the default landing page in LiliFlow (post-login and root redirect).
+alwaysApply: true
+---
+
+# Dashboard — Default Landing Page
+
+**Rule:** The **Dashboard** must always be the default page users see after logging in and when visiting the app root.
+
+## Behaviour
+
+- **Post-login:** After successful authentication (and when workspace creation is not required), redirect to **`/dashboard`**, not to `/apps` or any other route.
+- **Root path:** When an authenticated user hits **`/`**, redirect to **`/dashboard`**.
+- **No role-based override:** Do not send viewers or other roles to a different default (e.g. `/apps`). Dashboard is the single default for all authenticated users.
+
+## Where this is enforced
+
+- **workflow-designer (App.tsx):** `homeRoute` is set to `'/dashboard'`. The login route and the root route both use this for redirects. Do not reintroduce conditional defaults (e.g. `isViewer ? '/apps' : '/dashboard'`) without an explicit product decision to change this rule.
+
+## Rationale
+
+- Consistent entry point for all users.
+- Dashboard gives an immediate overview (workflows, stats, activity); apps and other sections remain one click away from the sidebar.

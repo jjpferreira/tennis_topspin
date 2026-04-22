@@ -1,0 +1,18 @@
+---
+description: When to run a security review — use the security-review skill and its output format; results go to pentest-audits
+alwaysApply: true
+---
+
+# Security Review — Use the Skill
+
+When **any** of these apply, read and follow **`workflow/micro-services/workflow-engine/docs/going_into_prod/standards/SKILL-SECURITY-REVIEW.md`** for the full procedure and **mandatory output format**:
+
+- User says "security review", "audit this", "is this secure"
+- Reviewing code or PRs with security implications (auth, payments, APIs, webhooks, integrations)
+- Architecture or implementation involving auth, payments, or sensitive data
+
+**Do not** improvise a security review. Use the skill's checklists, severity classification, and required output structure (Summary → Critical/High/Medium/Low → Checklist → Verdict).
+
+**Output:** Write the full review to **`_docs/product/analysis/security/pentest-audits/`** as `PENTEST_YYYY-MM-DD.md` (or `PENTEST_<scope>_YYYY-MM-DD.md` if scoped). Deliver the same content in chat.
+
+**Cardinal rule** (from the skill): If something is unclear or ambiguous, **flag it**. Silence is failure.

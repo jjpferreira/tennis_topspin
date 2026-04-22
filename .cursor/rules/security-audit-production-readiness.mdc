@@ -1,0 +1,27 @@
+---
+description: Full production-readiness and periodic security audit — use the template in promp-code-analysis.md
+globs: workflow/promp-code-analysis.md
+alwaysApply: false
+---
+
+# Production Readiness & Periodic Security Audit
+
+When the user asks for a **full production-readiness audit**, **periodic security audit**, or **release readiness review** (broader than a single-PR security review), use the **template and format** in **`workflow/promp-code-analysis.md`**.
+
+**Trigger phrases (examples):**
+- "Run a production readiness audit"
+- "Do a full security audit"
+- "Periodic security audit"
+- "Is this app production ready?"
+- "Release readiness review"
+
+**What to do:**
+1. Read **`workflow/promp-code-analysis.md`** and follow its **NON-NEGOTIABLE RULES** and **DELIVERABLE FORMAT**.
+2. Ask for or use: repo structure, key source files, dependency manifests, CI/CD config, app configs, tests/coverage (as listed in the template).
+3. Produce the full deliverable: Executive Verdict → Release Blockers → Security Review (threat model + findings) → Code Quality → Reliability & Performance → Observability → Deployment & Release → Action Plan → Scoring.
+
+**Difference from day-to-day security review:**
+- **Security review** (rule `security-review.mdc`): Focused AppSec pass on code/PR; uses `SKILL-SECURITY-REVIEW.md`; output Summary → Critical/High/Medium/Low → Verdict.
+- **Production readiness audit** (this rule): Broader assessment (security + quality + reliability + observability + deployment); uses `promp-code-analysis.md`; output includes verdict, blockers, threat model, action plan, and score.
+
+If the user only says "security review" or "audit this" in a narrow context, prefer the **security-review** rule and skill. If they ask for a **full** or **periodic** audit or **production readiness**, use this template.

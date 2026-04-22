@@ -1,0 +1,70 @@
+---
+description: When a feature is completed and added to marketing, add or update user-manual style docs for https://www.liliflow.ai/docs
+globs: _docs/www/**/*.md
+alwaysApply: false
+---
+
+# WWW Documentation — User Manual for docs.liliflow.ai
+
+**When a completed feature is added to the marketing feature list** (per `marketing-feature-list.mdc`), you **must also** create or update the corresponding **user-manual style documentation** in `_docs/www/` so the functionality is documented on **https://www.liliflow.ai/docs** (e.g. [workflow-builder](https://www.liliflow.ai/docs?article=workflow-builder)).
+
+## Purpose
+
+- **Audience:** End users, customers, and evaluators — people who use or evaluate the product.
+- **Style:** User manual — how to use the feature, step-by-step, with clear headings and examples. Not internal dev docs or API reference.
+- **Location:** `_docs/product/` is product/backlog; `_docs/www/` is the source for the public docs site.
+
+## Where to add documentation
+
+| Type of feature | Location | Example |
+|-----------------|----------|---------|
+| **High-level UX / getting started** (designer, library, templates, platform overview) | `_docs/www/Getting Started/` | `Drag-and-Drop Workflow Builder.md`, `Workflow Library and Templates.md` |
+| **Step types or integration guides** | `_docs/www/` (top level) | `Web Crawling Steps.md`, `OpenSearch Steps.md`, `Advanced Steps.md` |
+| **New capability that fits an existing doc** | **Update** the existing file (add a section or subsection) | Add "Enable/Disable Steps" to the Workflow Builder doc |
+
+- Use a **new file** when the feature deserves its own article (e.g. a new step family or a major UX area).
+- **Update an existing file** when the feature is a sub-capability (e.g. "enable/disable steps" inside the workflow builder doc).
+
+## User-manual style (what to write)
+
+Write so a user can **find and use** the feature without reading code or internal specs.
+
+1. **Title and Last Updated**
+   - Start with `# Feature or Page Title`.
+   - Add **Last Updated:** YYYY-MM-DD (use the feature completion date).
+
+2. **Overview**
+   - Short paragraph: what this is and why a user would use it.
+
+3. **How to access / get started**
+   - Where in the UI (menu, URL, screen).
+   - Prerequisites if any (e.g. crawler-service for Web Crawling).
+
+4. **Core features / steps**
+   - Break down into clear sections (e.g. "Visual Canvas", "Step Library", or per-step-type).
+   - Use **step-by-step** where it helps (numbered lists).
+   - Use **tables** for parameters, options, or quick reference.
+
+5. **Examples**
+   - Short examples (config snippets, UI paths) so users can copy or follow.
+
+6. **Links**
+   - Link to related docs (e.g. API, other articles) only when useful for the user.
+
+## Examples of existing style
+
+- **Getting Started:** `_docs/www/Getting Started/Drag-and-Drop Workflow Builder.md` — Overview, Accessing the Designer, Core Features (canvas, step library), Building Your First Workflow.
+- **Step reference:** `_docs/www/Web Crawling Steps.md` — Overview table, Prerequisites, then per-step (Parameters, Output Variables, Example YAML).
+
+## Checklist (when adding docs for a completed feature)
+
+- [ ] New or updated file under `_docs/www/` (or `_docs/www/Getting Started/`).
+- [ ] **Last Updated:** YYYY-MM-DD (completion date).
+- [ ] User-manual tone: how to use, not internal implementation.
+- [ ] Clear headings and structure (Overview, access, features, examples).
+- [ ] If you added a new top-level doc, ensure the docs site can discover it (e.g. add to nav/index if the project has one).
+
+## Related rules
+
+- **marketing-feature-list.mdc** — When closing a feature: add to MARKETING_FEATURE_LIST.md **and** add/update www docs (this rule).
+- **feature-kanban.mdc** — Status flow and when to run the parse script.

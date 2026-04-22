@@ -1,0 +1,53 @@
+---
+description: When adding or editing features, always work out and document relationships between tickets (FEAT-XXX)
+globs: _docs/product/FEATURES_AND_IDEAS.md,_docs/product/kaban/**,_docs/product/analysis/**
+alwaysApply: false
+---
+
+# Feature Relationships — Always Document Links Between Tickets
+
+**When you add a new feature** (new FEAT-XXX block in `FEATURES_AND_IDEAS.md`) or **significantly edit** an existing feature, you **must** work out and document its **relationships** to other features. This keeps the backlog traceable and avoids orphaned or duplicate tickets. **New features must use a unique ID** — never duplicate FEAT-XXX or BUG-XXX; see **`feature-bug-id-no-duplicates.mdc`**.
+
+## When this applies
+
+- **Adding a new feature** — Any new feature block (new FEAT-XXX) in FEATURES_AND_IDEAS.md.
+- **Significantly editing a feature** — Changing scope, description, or dependencies of an existing feature (e.g. adding analysis, changing status to PLANNED).
+
+## What you must do
+
+1. **Identify related features** — Scan existing features in FEATURES_AND_IDEAS.md for:
+   - **Depends on** — This feature requires another (e.g. FEAT-054 depends on FEAT-034 for Docker images).
+   - **Complements / implements-after** — This feature builds on or follows another (e.g. CI/CD complements Production-Ready Packaging).
+   - **Extends** — This feature extends or narrows another (e.g. encryption field type extends encrypted datatables).
+   - **Related** — Same domain or user journey (e.g. form builder and datatables).
+   - **Blocks or is blocked by** — Ordering constraints.
+
+2. **Add a Related line** — In the feature block, add (or update) a line in this format:
+   ```text
+   **Related:** FEAT-XXX (relationship type), FEAT-YYY (relationship type).
+   ```
+   Place it after **Description** (and after **Analysis:** if present). Use short, clear relationship types, e.g.:
+   - `complements`, `depends on`, `implements-after`, `extends`, `related`
+   - Or a short phrase: e.g. `FEAT-035 (Encrypted Fields — this adds concrete field type and forms)`.
+
+3. **Optionally update related features** — If the new feature is the “other side” of a dependency (e.g. FEAT-058 extends FEAT-035), add the new feature to the **Related** line of the existing feature when it helps (e.g. under FEAT-035: "FEAT-058 adds encryption field type and forms support").
+
+## Examples (from FEATURES_AND_IDEAS.md)
+
+- `**Related:** FEAT-034 (implements-after).`
+- `**Related:** FEAT-033 (workflow sharing), FEAT-002 (approval for production promotion).`
+- `**Related:** FEAT-035 (Encrypted Fields in Datatables — FEAT-058 adds the concrete field type and forms support).`
+- `**Related:** FEAT-058 (encryption field type), FEAT-035 (encrypted fields).`
+
+## If no relationships exist
+
+If the new feature is genuinely standalone, add:
+```text
+**Related:** None (standalone).
+```
+Only use this when there are no dependencies, complements, or domain links to other FEAT-XXX items.
+
+## After adding or updating Related lines
+
+- **Run the parse script** if you changed FEATURES_AND_IDEAS.md (so the Kanban and `features.json` stay in sync):  
+  `python3 _docs/product/kaban/parse_features_md.py`

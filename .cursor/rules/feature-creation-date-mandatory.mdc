@@ -1,0 +1,17 @@
+---
+description: When creating a feature or bug, the creation date (Added) must always be present in FEATURES_AND_IDEAS.md
+globs: _docs/product/FEATURES_AND_IDEAS.md
+alwaysApply: false
+---
+
+# Feature/Bug Creation — Date Required
+
+When you **create a new feature or bug** in **`_docs/product/FEATURES_AND_IDEAS.md`** (new FEAT-XXX or BUG-XXX block), the **date the feature got created must be there**.
+
+- **Added:** YYYY-MM-DD is **mandatory**. It is the date the feature or bug was created (when the entry was first added to the backlog).
+- Use the **actual date of creation** — when you are adding the entry, use **today's date** (or the date the user is working in). Do not omit **Added:** or use a past/guessed date.
+- Set **Last Updated:** to the same date when creating the block; when you later edit the block, update **Last Updated:** to the date of that edit.
+
+**Check before saving:** Every new feature/bug block has a line that includes `**Added:** YYYY-MM-DD`. Without it, traceability and the Kanban are unreliable.
+
+**Related rules:** `create-feature-documentation.mdc` (create feature → add entry first, including dates), `feature-format.mdc` (full block format and date rules).

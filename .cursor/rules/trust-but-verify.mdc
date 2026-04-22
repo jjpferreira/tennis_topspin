@@ -1,0 +1,16 @@
+---
+description: Golden rule — trust the user's request but verify scope, target, and effect before applying changes
+alwaysApply: true
+---
+
+# Trust but verify
+
+**For everything:** Trust what the user asks for, then **verify** before applying.
+
+1. **Scope** — Confirm *which* thing is in scope (e.g. "RAG Single Document Ingestion" = DataTable template only; "RAG Single Document Ingestion (OpenSearch)" = different template). Do not change the wrong system, template, or file.
+2. **Target** — Re-read the request: exact names, IDs, `WHERE` clauses, file paths. Ensure edits/migrations touch only the intended target.
+3. **Effect** — Before writing a migration, script, or code: double-check that the change matches the request and has no unintended side effects (e.g. no extra migrations for templates the user did not ask to change).
+
+**Production systems:** Mistakes in migrations, config, or template updates can bring services down. Always verify scope, target, and effect; when in doubt, ask.
+
+**Migrations (Flyway):** **Never edit an existing migration file** (any `V*.sql` under `db/migration/`). Editing an applied migration changes its checksum and can crash the app on deploy (`FlywayValidateException`). If something else is needed, **create a new migration** with the next version number. Treat "should I change this migration?" as no — add a new one instead.

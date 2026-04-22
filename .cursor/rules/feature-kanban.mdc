@@ -1,0 +1,69 @@
+---
+description: Feature backlog and Kanban — run parse script when picking a ticket, adding/editing features or bugs, or refreshing the board
+globs: _docs/product/FEATURES_AND_IDEAS.md,_docs/product/kaban/**
+alwaysApply: false
+---
+
+# Feature Backlog & Kanban
+
+**When the user asks you to do, implement, or build a feature** (e.g. "implement FEAT-XXX", "do FEAT-XXX", "go ahead and implement FEAT-058", "build feature X", "do feature X") — **the first thing you must do, before any implementation work**, is:
+
+1. **Move that feature to IN-PROGRESS** in FEATURES_AND_IDEAS.md (update heading + Status line).
+2. **Run the parse script** so the Kanban and `features.json` update immediately (real-time view for the user).
+3. **Load the related analysis if it exists** — In the feature block, look for an **Analysis:** line with a link (e.g. `**Analysis:** [Stripe Connect analysis](analysis/FEAT_067_STRIPE_CONNECT_ANALYSIS.md)`). If present, **read that analysis document** (under `_docs/product/analysis/`) **before** implementing. Use the analysis (scope, current state, gaps, suggested implementation order, technical considerations) to guide the implementation.
+4. **Then** proceed with implementation.
+
+Do not skip or defer the status-update step. Do not skip loading the analysis when a link exists — the analysis is the source of truth for how to implement the feature.
+
+**Do NOT mark a feature as COMPLETED** unless the user has explicitly tested it and agreed that it is done. Implementation being finished is not enough — the user must confirm. Never move a feature to Completed Features without the user's explicit sign-off.
+
+## Source of truth
+
+- **Backlog:** `_docs/product/FEATURES_AND_IDEAS.md` — features with IDs (FEAT-XXX), status ([IDEA], [PLANNED], [IN-PROGRESS], [COMPLETED]), priority, and full write-ups.
+- **Kanban:** `_docs/product/kaban/` — `parse_features_md.py` reads FEATURES_AND_IDEAS.md and writes `features.json`; `kanban.html` is the board.
+
+## When adding a new feature — MANDATORY: document relationships
+
+When you **add a new feature** (new FEAT-XXX block), you **must** work out and add its **relationships** to other features. See **`feature-relationships.mdc`**: add a **Related:** line (e.g. `**Related:** FEAT-033 (workflow sharing), FEAT-002 (approval).`) or `**Related:** None (standalone).` Then run the parse script.
+
+## When user says "do feature X" or "do FEAT-XXX" — MANDATORY status update (do this first)
+
+**Order of operations:** Status update and parse **before** any implementation. This keeps the Kanban in sync and gives real-time visibility.
+
+1. **Identify the feature** — Resolve "feature X" or "FEAT-XXX" to the exact feature block in FEATURES_AND_IDEAS.md (by ID or title).
+2. **Set status to IN-PROGRESS** — In that feature block, update **both**:
+   - The **heading**: change `### [IDEA]` or `### [PLANNED]` to `### [IN-PROGRESS]` (keep priority and title, e.g. `### [IN-PROGRESS] [HIGH] System Templates — ...`).
+   - The **status line**: change `**Status:** \`[IDEA]\`` or `**Status:** \`[PLANNED]\`` to `**Status:** \`[IN-PROGRESS]\``.
+3. **Run the parse script** (see command below) so the Kanban shows the feature in the correct column (real-time view).
+4. **Load the related analysis if it exists** — In the same feature block, look for a line like `**Analysis:** […](analysis/…)`. If present, **read that file** under `_docs/product/analysis/` and use it (scope, gaps, implementation order, technical notes) to guide implementation.
+5. **Then proceed** with the ticket (implementation, etc.).
+
+## When the feature is completed — MANDATORY: only after user has tested and agreed
+
+**Do not mark as COMPLETED or move to Completed Features until the user has tested the feature and explicitly agreed it is done.** If you have only finished implementation, leave the feature in IN-PROGRESS.
+
+When the **user** confirms the feature is complete (e.g. "FEAT-042 is done", "I've tested it, mark it complete"):
+
+1. **Set status to COMPLETED** — In the feature block, update:
+   - The **heading**: change to `### ✅ [Title]` (e.g. `### ✅ System Templates — Ready-to-Use When Browsing or Creating New Workflows`).
+   - The **status line**: change to `**Status:** \`[COMPLETED]\`` and add `**Completed:** YYYY-MM-DD` (today's date). **Completed date is mandatory** — without it the item will not show in the dashboard "Completed on &lt;date&gt;" or daily chart (see `feature-format.mdc`).
+2. **Move to Completed Features** — Cut the **entire** feature block (from `### ✅` to the next `---` or `### `) and paste it at the **top** of the **"Completed Features"** section (right after the `## Completed Features ✅` heading). The most recently completed feature stays at the top; do not append at the bottom. Use the **canonical Completed block format** (metadata line → blank line → **Description:**; no **Complexity:** / **Business Value:** between metadata and **Description:**). See `feature-format.mdc` — "Completed Features block — canonical order". The Completed section lives at the bottom of FEATURES_AND_IDEAS.md (before the `## Notes` section). **Preserve dates:** Include **Added:** YYYY-MM-DD in the Completed block metadata when known (date the feature was added to the backlog as an idea). This way the dashboard shows the item in "New/updated" on the added day and in "Completed" on the completion day — both counts are captured (e.g. idea added yesterday, completed today).
+3. **Run the parse script** so the Kanban no longer shows the feature in active columns.
+4. **Add to marketing feature list and www docs** — (See `marketing-feature-list.mdc`.) Add the feature to `_docs/product/MARKETING_FEATURE_LIST.md` with **Completed:** YYYY-MM-DD, **Description:** and **Key Features:**. Also create or update **user-manual style** documentation in `_docs/www/` so the feature is documented on https://www.liliflow.ai/docs (see `www-documentation.mdc`).
+
+## When to rerun the parser
+
+1. **User picks a ticket / "do feature X"** — Update status to IN-PROGRESS (see above), run the parse script, then proceed.
+2. **User asks to refresh the Kanban** — Run the parse script.
+3. **After any change in FEATURES_AND_IDEAS.md** — Run the parse script so `features.json` and `kanban.html` reflect the changes. This includes:
+   - Any **status change** (IDEA → PLANNED → IN-PROGRESS → COMPLETED, or BUG added/fixed).
+   - **Adding a new feature** (new FEAT-XXX block) or **adding a new bug** (new BUG-XXX block in Bugs & Issues). The Kanban reads from the parsed JSON embedded in `kanban.html`; if you don’t run the parser, new or updated entries **will not show up** on the board.
+4. **After adding or editing a bug** — Same as above: run `python3 _docs/product/kaban/parse_features_md.py` so the bug appears in the Bug column and the analysis link (if any) is embedded.
+
+## Command to run (from repo root)
+
+```bash
+python3 _docs/product/kaban/parse_features_md.py
+```
+
+Run from the workspace root (e.g. `liliflow.ai`). The script writes `_docs/product/kaban/features.json` and updates `kanban.html`; then the user can open `kanban.html` in a browser to see the board.

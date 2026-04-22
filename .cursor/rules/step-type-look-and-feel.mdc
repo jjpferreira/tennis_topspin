@@ -1,0 +1,67 @@
+---
+description: Preserve step type so nodes never lose their look-and-feel and become a generic/basic task
+globs: workflow/workflow-designer/src/store/workflowStore.ts,workflow/workflow-designer/src/components/WorkflowNode.tsx
+alwaysApply: false
+---
+
+# Step Type Look-and-Feel — Never Lose Custom Step Appearance
+
+**Problem:** Steps with a **custom look and feel** (e.g. Agentic RAG compound node with leafs, UNIFIED_OUTPUT icon, LOOP group) can sometimes "collapse" to a **generic basic task** appearance—same icon, default colors, no compound UI. This happens when the step **type** is lost or overwritten during load, save, update, or paste.
+
+**Rule:** Whenever you add or change code that **loads**, **saves**, or **updates** workflow steps or node data, you **must** ensure the **step type is preserved** so the node never falls back to a generic TASK look.
+
+## Where step type lives
+
+- **Workflow definition (API/JSON):** Steps have `type` (or sometimes `stepType` in camelCase APIs). Value must be a valid `StepType` (e.g. `AGENTIC_RAG`, `UNIFIED_OUTPUT`, `LOOP`).
+- **React Flow node data:** `node.data.stepType` (and optionally `node.data.type`) drive the appearance in `WorkflowNode.tsx` (stepIcons, stepColors, compound rendering for AGENTIC_RAG, etc.).
+
+## Mandatory practices
+
+### 1. Loading steps → nodes (workflowStore)
+
+- When building a node from a step (e.g. `createNodeFromStep`, or any "step to node" conversion), **always** read the step type from **both** `step.type` and `step.stepType`, with a **fallback from stepId** so type is never lost:
+  - `const stepType = normalizeStepType((step as any).type ?? (step as any).stepType ?? inferStepTypeFromStepId(step.stepId))`
+- **Always** set `data.stepType = stepType` on the node. Never leave `data.stepType` undefined for workflow steps.
+- **When adding a new step type:** Add a branch in **`inferStepTypeFromStepId`** in `workflowStore.ts`: if `stepId` starts with the step’s slug (e.g. `variables-` → `'VARIABLES'`, `debug-` → `'DEBUG'`), return that type. This ensures new steps never collapse to TASK after save/load even if `type` is missing from the payload.
+
+### 2. Updating node data (updateNode)
+
+- When merging new data into a node (`data: { ...oldNode.data, ...merged }`), **never** overwrite `stepType` with `undefined` or `null`.
+- After merging, if `merged.stepType` is missing or empty, **preserve** the existing value: `if (finalData.stepType == null && oldNode.data?.stepType != null) finalData.stepType = oldNode.data.stepType`.
+
+### 3. Normalizing step type (normalizeStepType)
+
+- Use `normalizeStepType()` whenever reading a step type from API, JSON, or form (so casing and variants resolve correctly).
+- For step types with **alternate forms or aliases**, add an explicit branch in `normalizeStepType` (in `workflowStore.ts`) so they always resolve to the **canonical** value used in `stepIcons` and `stepColors`. Current canonical variants:
+  - `UNIFIED_OUTPUT` — variants: `UNIFIEDOUTPUT`, `UNIFIED_OUTPUT`
+  - `AGENTIC_RAG` — variants: `AGENTICRAG`, `AGENTIC_RAG`
+  - `RENDER_EMAIL_TEMPLATE` — variants: `RENDEREMAILTEMPLATE`, `RENDER_EMAIL_TEMPLATE`, `MAILMERGE`, `MAIL_MERGE` (so "Mail Merge" step type is preserved on load/save/reload)
+- When adding a **new** custom step type that has a user-facing alias (e.g. "Mail Merge" → `RENDER_EMAIL_TEMPLATE`), add both the canonical enum name and the alias(s) to `normalizeStepType` so the step never collapses to TASK after load or refresh.
+
+### 4. New step types with custom UI
+
+When adding a **new step type** that has custom look (compound node, special icon, or distinct colors):
+
+- Add it to **stepIcons** and **stepColors** in `WorkflowNode.tsx`.
+- Add any variant/casing to **normalizeStepType** in `workflowStore.ts` if the type string can appear in alternate form.
+- **Add the step to `inferStepTypeFromStepId`** in `workflowStore.ts`: when `step.stepId` (or `node.data.stepId`) starts with the step’s kebab slug (e.g. `variables-` → return `'VARIABLES'`, `debug-` → `'DEBUG'`), return that type. New steps from the sidebar use `stepId` like `variables-123`, so this recovers the type if it is ever missing on load or when building steps for save.
+- Ensure **load path** (step → node) uses `(step as any).type ?? (step as any).stepType ?? inferStepTypeFromStepId(step.stepId)` and sets `data.stepType`.
+- Ensure **save path** (node → step) uses `node.data.stepType ?? (node.data as any).type ?? inferStepTypeFromStepId(node.data.stepId)` so the persisted workflow always has the correct `type`.
+- Ensure **update path** (updateNode) preserves `stepType` when the update payload doesn't include it.
+
+### 5. Optional: recovery in WorkflowNode
+
+- In `WorkflowNode.tsx`, when resolving `stepType` from `data.stepType ?? data.type`, you may add a **fallback** for known compound steps if parameters clearly identify them (e.g. if `stepType === 'TASK'` but `data.parameters?.agents` and `data.parameters?.synthesisModel` exist, treat as `AGENTIC_RAG`). This recovers the look when type was lost in a legacy payload.
+
+## Checklist (when touching load/save/update of steps or nodes)
+
+- [ ] Step → node: type read from `step.type ?? step.stepType ?? inferStepTypeFromStepId(step.stepId)`, normalized, and set on `data.stepType`.
+- [ ] updateNode: merged data never sets `stepType` to undefined when the node already had a stepType.
+- [ ] New custom step type: added to stepIcons, stepColors, **normalizeStepType** (if aliases), and **inferStepTypeFromStepId** (e.g. `stepId.startsWith('variables-')` → `'VARIABLES'`).
+- [ ] Save/export: step type comes from `node.data.stepType ?? node.data.type ?? inferStepTypeFromStepId(node.data.stepId)` and is normalized before writing to the workflow definition.
+
+## Related
+
+- **new-workflow-step-left-menu-checklist.mdc** — When adding a new step type, register it in WorkflowNode (icons, colors) and in the store/validator.
+- **backend-recompile.mdc** — After modifying Java source files (e.g. adding a new `StepType` enum value), you **must** run `mvn clean compile` before restarting the backend. Maven's incremental compiler can silently use stale bytecode, causing new enum values to fall back to TASK at runtime.
+- **step-properties-user-copy.mdc** — Labels and descriptions for steps; unrelated to type preservation but part of step UX.

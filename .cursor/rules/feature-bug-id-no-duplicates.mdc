@@ -1,0 +1,29 @@
+---
+description: Never duplicate FEAT-XXX or BUG-XXX; always assign the next available ID when adding a new feature or bug
+globs: _docs/product/FEATURES_AND_IDEAS.md,_docs/product/analysis/*.md
+alwaysApply: false
+---
+
+# Feature & Bug IDs — No Duplicates
+
+**Rule:** When adding a **new** feature or bug to **`_docs/product/FEATURES_AND_IDEAS.md`**, you **must never reuse an existing FEAT-XXX or BUG-XXX ID**. Each ID must be **unique** across the entire document (active and completed sections).
+
+## Why
+
+Duplicate IDs cause the wrong feature to appear on the Kanban, break **Related:** links, and confuse which analysis or implementation belongs to which item. One ID = one feature or one bug, for its entire lifetime.
+
+## Procedure when adding a new feature or bug
+
+1. **Before** creating a new feature block or bug block, **determine the next available ID**:
+   - **Features:** Search `_docs/product/FEATURES_AND_IDEAS.md` for all `FEAT-` (e.g. `**Feature ID:** \`FEAT-` or `FEAT-123`). Find the **maximum numeric part** in use. The next feature ID is **FEAT-(max + 1)** (e.g. if max is 149, use **FEAT-150**). Also check the "Completed Features" section and any tables that reference FEAT-XXX.
+   - **Bugs:** Same for `BUG-` — search for all `**Bug ID:** \`BUG-` and `BUG-` references; next bug ID is **BUG-(max + 1)**.
+2. **Use that ID everywhere** for the new item: heading, **Feature ID:** / **Bug ID:** line, **Related:** references from other features only when they point *to* this one, analysis filename (e.g. `FEAT_150_...` or `BUG_030_...`), and any tables (e.g. "Additional incomplete").
+3. **Do not** assign FEAT-XXX or BUG-XXX by guess or by reusing an ID that "sounds free". Always verify by search.
+
+## Checklist
+
+- [ ] Searched FEATURES_AND_IDEAS.md for all FEAT-XXX (or BUG-XXX) before choosing the new ID.
+- [ ] New ID = next number after the current maximum (no duplicate).
+- [ ] Same ID used in heading, ID line, analysis link/filename, and tables.
+
+**Related rules:** `create-feature-documentation.mdc` (create new feature), `feature-format.mdc` (block format), `feature-relationships.mdc` (Related line).

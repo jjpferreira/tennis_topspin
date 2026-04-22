@@ -1,0 +1,72 @@
+---
+description: When adding a new workflow step or integration — mandatory checklist so the step appears in the left menu, has Output Variables and Test button where applicable, and is fully wired; must be followed for every new step or integration
+globs: workflow/workflow-designer/src/components/Sidebar.tsx,workflow/workflow-designer/src/store/configStore.ts,workflow/workflow-designer/src/store/workflowStore.ts,workflow/workflow-designer/src/types/workflow.ts,workflow/workflow-designer/src/components/WorkflowNode.tsx,workflow/workflow-designer/src/components/PropertiesPanel.tsx,workflow/workflow-designer/src/components/ApplicationSettingsPanel.tsx,workflow/workflow-designer/src/utils/stepOutputVariables.ts,workflow/workflow-designer/src/utils/workflowValidator.ts,workflow/micro-services/workflow-engine/src/main/resources/docs/step-type-reference.json,_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md,_docs/product/guides/HOW_TO_ADD_A_CUSTOM_INTEGRATION.md
+alwaysApply: false
+---
+
+# New Workflow Step or Integration — Mandatory Checklist
+
+**Rule:** When you add a **new workflow step** or a **new integration** that adds steps to the designer, you **MUST** follow this checklist. Do not ship a new step or integration without completing every applicable row below. This applies to both “new step type” (e.g. backend enum + executor) and “new integration” (e.g. Slack, OpenSearch) that exposes steps in the left palette.
+
+**Why this rule exists:** We once shipped backend step types (e.g. `CRAWL_START`, `CRAWL_STATUS`, `CRAWL_RESULTS`) that were **not visible** in the workflow designer and had no Output Variables or Test button. Users could not drag them from the left sidebar, configure them, or validate them. This rule ensures that **whenever a new step or integration is added**, it is **always** added to every place that controls visibility, configuration, **Output Variables**, and **Test the step**.
+
+**When this applies:** You are adding or modifying a **new workflow step type** or **new integration** (new value in backend step enum, new step executor, new entry in the designer or Integrations panel). The step type string (e.g. `MY_STEP`) must be **exactly the same** in backend enum, executor, and all frontend locations below.
+
+**Reference template:** Use **OCR_EXTRACT** as the solid reference when comparing completeness — it has full coverage (step-type-reference, Sidebar, ApplicationSettingsPanel, workflowStore, stepOutputVariables, PropertiesPanel, ExecutionsView Request/Response, backend executor + wiring, unit/integration tests). See **`_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md`** “Reference template: OCR_EXTRACT” table.
+
+**New steps must always be enabled by default in every workspace.** So existing users and any tenant/role (including those with a restricted step visibility matrix) see the new step in the palette without admins having to update the matrix. You **must** do all three: (1) **Frontend** — add the new type to `defaultVisibleStepTypes` in **configStore.ts** and to the rehydration/migration block so persisted `visibleStepTypes` gets it. (2) **Backend** — add the new type to **`StepVisibilityService.STEP_TYPES_ALWAYS_ENABLED_DEFAULT`** (workflow-engine) so when the API returns a restricted list from the visibility matrix, this step is still included. (3) **Frontend** — add the new type to **`alwaysShowInPalette`** in **Sidebar.tsx** so the palette shows it even if the allowed list from the API is stale or missing it.
+
+---
+
+## Mandatory checklist — do not skip any row
+
+Before considering the new step "done", ensure **every** row below is completed. If any is missing, the step will not appear in the left menu, or will not be configurable, or will not be visible to existing users.
+
+| # | Location | What to add / verify |
+|---|----------|----------------------|
+| 1 | **`workflow/micro-services/workflow-engine/src/main/resources/docs/step-type-reference.json`** | Add a step definition object for the new type (name, description, parameters, outputs). This is the documentation source used by the UI and AI features. **All user-facing text must be professional, error-free, and free of spelling mistakes** — see **`step-properties-user-copy.mdc`**. |
+| 2 | **`workflow/workflow-designer/src/types/workflow.ts`** | Add the new type to the `StepType` union (e.g. `\| 'MY_STEP'`). |
+| 3 | **`workflow/workflow-designer/src/components/Sidebar.tsx`** | Add the step to the correct group in `stepGroups`: `type`, `label`, `icon`, `color`, `description`. Include `stepLabel: template.label` in the drag payload so dropped nodes get a human-readable label. **Labels and descriptions: professional, error-free, no spelling mistakes** — see **`step-properties-user-copy.mdc`**. |
+| 4 | **`workflow/workflow-designer/src/store/configStore.ts`** | Add the new type to `defaultVisibleStepTypes`. In `onRehydrateStorage` and in `deserialize`, ensure migration logic merges any new default step types into existing users’ `visibleStepTypes` so they see the new step without clearing storage. **Required so the new step is enabled by default in every workspace.** |
+| 5 | **`workflow/workflow-designer/src/components/WorkflowNode.tsx`** | Add the step type to `stepIcons` and `stepColors` so the node shows the correct icon and color on the canvas. |
+| 5b | **`workflow/workflow-designer/src/store/workflowStore.ts`** | Add the new step type to **`inferStepTypeFromStepId`**: when `stepId` starts with the step’s kebab slug (e.g. `variables-` → `'VARIABLES'`, `debug-` → `'DEBUG'`), return that type. This ensures the step never collapses to generic TASK after save/load. Load and save must use this as fallback: `type ?? stepType ?? inferStepTypeFromStepId(stepId)`. See **step-type-look-and-feel.mdc**. |
+| 6 | **`workflow/workflow-designer/src/components/PropertiesPanel.tsx`** | Add a step-type check (e.g. `isMyStep = formData?.stepType === 'MY_STEP'`) and a **configuration block** with inputs for all parameters the backend expects. Add the step type to the panel’s `stepColors` map. **All labels, placeholders, and help text must be professional, error-free, and free of spelling mistakes** — see **`step-properties-user-copy.mdc`**. |
+| 6b | **Previous variables** (when the step has parameters that accept template/expression input, e.g. URL, body, passphrase, input text) | Add a collapsible **"Variables you can use in this step"** block using **`usefulVariablesList`** (fromSteps + globalNames). **Must** follow **`.cursor/rules/previous-variables-ui.mdc`**: show **step name once**, then only the **actual variable names** (e.g. `outputData.text`, `myVar`), not the full `{{stepId.outputData.text}}` in the UI; copy and tooltip use the full `{{...}}` value. Use **`variableDisplayLabel(v)`** for display. Pattern: CHOICE, HTTP, ENCRYPT_DECRYPT in PropertiesPanel. |
+| 7 | **`workflow/workflow-designer/src/components/ApplicationSettingsPanel.tsx`** | In the "Step visibility" (or equivalent) section, add a label/entry for the new step type so users can show/hide it in the palette. |
+| 8 | **`workflow/workflow-designer/src/utils/workflowValidator.ts`** | Add the new type to the `VALID_STEP_TYPES` array so save/load and validation do not reject the step (e.g. "invalid type … Must be one of: …"). |
+| 9 | **Backend** | Backend enum, executor, and execution/transition wiring (WorkflowStateManager, SimpleDbWorkflowProvider, WorkflowRecoveryService). See **`_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md`** sections 7, 8, 8b. **After changing Java source files, you MUST run `mvn clean compile -DskipTests -q` before restarting** — Maven's incremental compiler can silently use stale bytecode (see **`backend-recompile.mdc`**). |
+| 10 | **Output Variables** (required if step writes to context or `outputData`) | In **PropertiesPanel.tsx**: add a collapsible "Output Variables" section (toggle state, table with columns Variable / Type / Description for context vars and `{{stepId.outputData.*}}`). In **`stepOutputVariables.ts`**: add the step type to `getOutputVariablePaths(stepType)`. Pattern: DOCUMENT_LOAD / OCR_EXTRACT / CRAWL_* in PropertiesPanel. See guide section 4a and **`.cursor/rules/new-steps-output-variables-and-test.mdc`**. |
+| 11 | **Test the step** (required if step can be validated in isolation — e.g. VARIABLES, OCR_EXTRACT, PDF_EXTRACT, CRAWL_START; configurable steps must have a Test button) | **Backend:** Add test endpoint e.g. `POST .../steps/<step-kebab>/test`, accept step params (and optional variables), run executor or validation, return `{ success, ... }` or `{ success: false, error }`; inject executor as `Optional<XxxStepExecutor>`. **Frontend (PropertiesPanel):** Add state (e.g. `xxxTestLoading`, `xxxTestResponse`, `xxxTestError`), callback that POSTs current params to test endpoint, **"Test Xxx" button** and success/error result UI. Pattern: OCR_EXTRACT / CRAWL_START / PDF_EXTRACT. See guide section 4b and **`.cursor/rules/new-steps-output-variables-and-test.mdc`**. |
+| 12 | **Request/Response in Executions** (required for every new step) | **Backend (executor):** Put `request` and `response` in the step result’s `outputData` on every run (success and error). Request = inputs/config used (e.g. stepType, parameters; no secrets). Response = result (e.g. success, payload or error). **Frontend (ExecutionsView.tsx):** Add the new step type to Request/Response section conditions (show + force-show), toggle keys, titles, and step-themed styling. **Must** follow **`.cursor/rules/executions-request-response.mdc`** so Executions > steps show Request and Response like HTTP, AI, RAG, PDF_GENERATE, OCR_EXTRACT, SLACK. Where the response (or request) is tabular (array of objects), use the Grid + JSON toggle pattern per that rule (see VARIABLES and DATATABLE in ExecutionsView). |
+| 13 | **Enabled by default in every workspace** | **(1) configStore.ts:** New type in `defaultVisibleStepTypes` and in rehydration/migration so existing users see it. **(2) Backend StepVisibilityService:** Add the new type to `STEP_TYPES_ALWAYS_ENABLED_DEFAULT` so when the step visibility matrix returns a restricted list, this step is still included for all workspaces. **(3) Sidebar.tsx:** Add the new type to `alwaysShowInPalette` so the palette always shows it. See rule above: “New steps must always be enabled by default”. |
+
+---
+
+## Cross-references
+
+- **Full step-by-step guide (step in left palette):** `_docs/product/guides/HOW_TO_ADD_A_STEP_TO_THE_LEFT_SIDEBAR.md` — sections 4a (Output Variables), 4b (Test button), 5b (Request/Response), 7–8b (backend wiring).
+- **Custom integration (right panel + steps):** `_docs/product/guides/HOW_TO_ADD_A_CUSTOM_INTEGRATION.md` — use when adding a new integration that adds steps.
+- **Output Variables & Test button (detailed pattern):** **`.cursor/rules/new-steps-output-variables-and-test.mdc`** — exact UI pattern, stepOutputVariables.ts, test endpoint shape; **must** be followed for every new step or integration where the step produces output or can be tested.
+- **Request/Response in Executions (mandatory):** For **every** new step, follow **`.cursor/rules/executions-request-response.mdc`** so Request and Response appear in Executions > steps (backend: request/response in outputData; ExecutionsView: step type in Request/Response sections). For tabular response/request data, use the Grid + JSON pattern (section 5 of that rule). See checklist row 12.
+- **Step properties user copy:** When a step has many properties (or any), all user-facing text (labels, descriptions, placeholders, help) must be **professional, error-free, and free of spelling mistakes**. See **`.cursor/rules/step-properties-user-copy.mdc`**.
+- **Step type preserved on load:** For **every** new step, add its stepId prefix to **`inferStepTypeFromStepId`** in `workflowStore.ts` (e.g. `variables-` → `VARIABLES`). If the step has a user-facing alias, also add it to **`normalizeStepType`**. See **`.cursor/rules/step-type-look-and-feel.mdc`**.
+- **Previous variables UI:** When a step has parameters that accept template/expression input (e.g. `{{variable}}`), add "Variables you can use in this step" and follow **`.cursor/rules/previous-variables-ui.mdc`** — step name once, then only variable names in the list; full `{{...}}` for copy and tooltip.
+
+---
+
+## Quick verification
+
+After implementation:
+
+1. **Left sidebar:** The new step appears in the correct group and can be dragged onto the canvas.
+2. **Canvas:** Dropped node shows the correct icon, color, and a human-readable label (not a generic ID).
+3. **Properties panel:** Selecting the node shows the configuration block and all parameters.
+4. **Settings:** The step type appears in Application Settings > Step visibility (or equivalent).
+5. **Validator:** New step type is in `VALID_STEP_TYPES` in `workflowValidator.ts` so save/load does not report "invalid type … Must be one of: …".
+6. **Persistence:** New step type is in `defaultVisibleStepTypes` and in migration logic so existing users see it without clearing browser storage.
+7. **Output Variables (if applicable):** When the step produces context or outputData, the Properties panel shows the collapsible Output Variables section and `stepOutputVariables.ts` includes the step.
+8. **Test the step (if applicable):** When the step can be validated in isolation, the "Test Xxx" button works (backend test endpoint + frontend button and result UI).
+9. **Request/Response in Executions:** Executor writes `request` and `response` to outputData; ExecutionsView includes the step type in Request and Response sections so "Xxx Request" and "Xxx Response" appear after execution. Follow **executions-request-response.mdc**.
+10. **Type on load:** After save and reload (or refresh), the step still shows the correct icon/color (not a generic TASK). Add the step’s stepId prefix to `inferStepTypeFromStepId` in `workflowStore.ts` (e.g. `variables-` → VARIABLES). If it has an alias, add it to `normalizeStepType` — see **step-type-look-and-feel.mdc**.
+
+If any of the above fails, one or more checklist rows were skipped — fix before closing the feature.

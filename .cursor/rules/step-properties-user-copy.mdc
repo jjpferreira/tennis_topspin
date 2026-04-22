@@ -1,0 +1,34 @@
+---
+description: Step properties and step docs — all user-facing text must be professional, error-free, and free of spelling mistakes
+globs: workflow/micro-services/workflow-engine/src/main/resources/docs/step-type-reference.json,workflow/workflow-designer/src/components/PropertiesPanel.tsx,_docs/www/**/*.md
+alwaysApply: false
+---
+
+# Step Properties — Professional, Error-Free User Copy
+
+**When a step has many properties** (or any number), or when you add or edit **user-facing text** for workflow steps, you **must** ensure that all such text is **professional**, **error-free**, and **free of spelling mistakes**.
+
+## Where this applies
+
+- **`step-type-reference.json`** — `displayName`, `description`, `capabilities`, parameter descriptions in `requiredParameters` / `optionalParameters` / `connections`, `commonUseCases`, `bestPractices`, and any other user-visible strings.
+- **`PropertiesPanel.tsx`** — Labels, placeholders, help text, section titles, button labels, and descriptions for each step type’s configuration block and Output Variables.
+- **WWW documentation** (`_docs/www/`) — Step docs (e.g. "Web Crawling Steps", "OpenSearch Steps", "Advanced Steps"): parameter names, descriptions, table text, and examples that users read.
+
+## Requirements
+
+1. **Spelling** — No spelling mistakes. Use correct spelling for technical terms (e.g. "configuration", "parameter", "optional", "required").
+2. **Grammar** — Correct grammar and punctuation (capitalization, apostrophes, plural/singular, verb agreement).
+3. **Professional tone** — Clear, consistent, user-friendly language; no slang or ambiguous wording.
+4. **Consistency** — Use the same terms for the same concepts (e.g. "step" vs "node", "parameter" vs "property") as in the rest of the product.
+
+## Before shipping
+
+- **Review** all new or changed user-facing strings for the step.
+- **Fix** any spelling or grammar errors in labels, descriptions, placeholders, and help text.
+- **Check** step-type-reference.json and PropertiesPanel (and www step docs if updated) together so parameter names and descriptions match and are correct.
+
+## Related rules
+
+- **new-workflow-step-left-menu-checklist.mdc** — Checklist for adding a new step (includes step-type-reference and PropertiesPanel); follow this copy rule for all text you add there.
+- **new-steps-output-variables-and-test.mdc** — Output Variables and Test button; labels and descriptions there must also be professional and error-free.
+- **www-documentation.mdc** — User-manual step docs; same quality bar for spelling and clarity.

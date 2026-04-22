@@ -1,0 +1,17 @@
+---
+description: When user asks to "create a feature", add/update the feature in FEATURES_AND_IDEAS.md first, then implement.
+alwaysApply: true
+---
+
+# Create Feature — Documentation First
+
+When the user asks to **"create a feature"**, **"add a feature"**, or similar (e.g. "I want a feature that…", "Implement a feature for…"):
+
+1. **First:** Add or update a **feature entry** in **`_docs/product/FEATURES_AND_IDEAS.md`**:
+   - **New / not yet implemented:** **Never duplicate IDs.** Before adding the block, determine the **next available FEAT-XXX** (or BUG-XXX for bugs): search the file for all `FEAT-` / `BUG-` (e.g. `**Feature ID:** \`FEAT-`, tables, Completed section) and use **FEAT-(max+1)** or **BUG-(max+1)**. Then add a new feature block with that ID, status `[IDEA]` or `[PLANNED]`, priority, and a clear **Description**. **Mandatory:** Include **Added:** YYYY-MM-DD — the **date the feature was created** (when you add the entry). Use the same date for **Last Updated:** on creation. Use **today's date** (the actual date when you are writing the entry); do not use a past or guessed date — wrong or missing creation dates break traceability. Add a **Related:** line to related features if any. Optionally add **Complexity** and **Business Value** for Kanban. See **`feature-bug-id-no-duplicates.mdc`** and **`feature-format.mdc`** for the full rule.
+   - **Already implemented (retroactive doc):** Same: use the next available ID. Add a short `[COMPLETED - see Completed Features]` block in Features & Ideas and a **full entry** in the **Completed Features ✅** section (Feature ID, Status, Priority, Completed date, Description, Related, Implementation completed / Details).
+2. **Then:** Proceed with implementation (or analysis doc) as requested.
+
+This ensures the product backlog in `FEATURES_AND_IDEAS.md` stays the single source of truth and is updated whenever a feature is created or shipped.
+
+**Related rules:** **`feature-bug-id-no-duplicates.mdc`** — never reuse an existing FEAT-XXX or BUG-XXX; always assign the next available ID when adding new features/bugs. For **existing** FEAT-XXX (e.g. "Do FEAT-042"), use **feature-kanban.mdc** (set IN-PROGRESS, run parse, implement, then COMPLETED + move to Completed + marketing list). **`cross-tenant-compliance.mdc`** — new features that touch tenant-scoped data must be cross-tenant compliant and must include unit, integration, and cross-tenant tests. This rule applies when the user asks to **create** a **new** feature rather than work on an existing one.

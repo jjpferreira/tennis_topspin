@@ -1,0 +1,30 @@
+---
+description: When building or editing an app Command Centre dashboard with inline tables, use GridSettingsPanel + userScopedGridKey like Partner MDF/Billing (see rule body).
+globs: "**/*CommandCentre*.tsx,**/AppDataView.tsx"
+alwaysApply: false
+---
+
+# App Command Centre — Custom Grid Tables (Default)
+
+When an installable LiliFlow app has a **dedicated Command Centre dashboard** component in `workflow-designer` (e.g. `*CommandCentreDashboard.tsx` rendered from `AppDataView.tsx` instead of the generic widget grid):
+
+## Required for each data table shown on that dashboard
+
+1. **`GridSettingsButton` + `GridSettingsPanel`** from `GridPillConfigPanel.tsx` in the table card header, shown when **`dashboardEditMode && hasDashboardWrite`** (same as Billing, MiCE, Grant, Partner MDF).
+2. **Per-user persistence:** `userScopedGridKey(\`<app>-<purpose>-${tenantAppId}\`, username)` for `loadPillMap` / `savePillMap` / `loadColVisibility` / `saveColVisibility`. Reload pill/visibility state when the scoped key changes (`useEffect` on key).
+3. **Column definitions:** `GridColumnDef[]` with stable `key` + `label`; render `<th>` / `<td>` only when `isColVisible(key, colVisibility)`.
+4. **Status columns:** use `resolvePillStyles(status, pillMap, DEFAULT_STATUS_MAP[status])` so users can recolour pills in the panel; pass `statusValues` listing known statuses plus any from data.
+5. **`rootTableName`:** logical DataTable name (e.g. `partner_campaign`) for `GridSettingsPanel` context.
+6. **Optional:** Highlight table border in edit mode (`border-2 border-*-200`) like Billing/Partner MDF.
+
+## When adding a new app with a command centre
+
+- Follow **`_docs/product/guides/LILIFLOW_APP_BUILD_PATTERN.md`** §8.1.
+- Copy the pattern from **`PartnerMdfCommandCentreDashboard.tsx`** or **`BillingCommandCentreDashboard.tsx`** for the table blocks.
+
+## Do not
+
+- Ship command-centre tables with hard-coded columns only and no grid settings (inconsistent with other apps).
+- Omit `username` on the dashboard component when tables use `userScopedGridKey`.
+
+**Related:** `build-liliapp.mdc`, `LILIFLOW_APP_BUILD_PATTERN.md`, FEAT-282 (grid customisation).

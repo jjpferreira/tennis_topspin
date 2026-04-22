@@ -1,0 +1,68 @@
+---
+description: New features must be cross-tenant compliant; unit, integration, and cross-tenant tests are mandatory
+alwaysApply: true
+---
+
+# Cross-Tenant Compliance — New Features
+
+**Rule:** Any **new feature** that touches data, APIs, or UI that could be tenant-scoped **must** be **cross-tenant compliant** and **must** be covered by **unit tests**, **integration tests**, and **cross-tenant tests**. No exceptions.
+
+## Why
+
+Multi-tenant isolation (FEAT-039) guarantees that one workspace (tenant) never sees or affects another's data. New features that add endpoints, entities, or UI that list or operate on tenant-scoped resources can easily leak data across tenants or bypass tenant filters if not designed and tested for it from the start.
+
+## When this applies
+
+- You are **creating a new feature** (new FEAT-XXX in FEATURES_AND_IDEAS.md).
+- You are **implementing** a feature that:
+  - Adds or changes **APIs** that list, read, or write tenant-scoped data (e.g. data tables, workflows, credentials, forms, rows).
+  - Adds or changes **entities** or **repositories** that have or should have `tenant_id` (or equivalent).
+  - Adds **UI** that lists or selects resources that are tenant-scoped (e.g. dropdown of "other DataTables", list of workflows).
+
+## What you must do
+
+### 1. Design for cross-tenant compliance
+
+- **List/read/write** of tenant-scoped resources must always be filtered by the **current tenant** (e.g. `TenantContext.getCurrentTenantIdUuid()`). Never return or accept data from another tenant.
+- **Validate** that any reference to another resource (e.g. target table ID, workflow ID) belongs to the **same tenant** when saving or resolving. Reject (400/403) if not.
+- **Document** in the feature analysis how the feature respects tenant boundaries (which APIs, which entities, which validations). See e.g. `_docs/product/analysis/FEAT_166_DATATABLE_REFERENCE_COLUMN_ANALYSIS.md` (Cross-Tenant Compatibility section).
+
+### 2. Unit tests (MUST)
+
+- Add or update **unit tests** for any new or modified service/repository/controller logic.
+- Mock `TenantContext` or tenant ID where relevant; test that tenant is passed into queries or validations.
+- Location: same package under `src/test/java`, e.g. `*Test.java`. See **java-tests.mdc**.
+
+### 3. Integration tests (MUST)
+
+- Add or update **integration tests** for new or changed APIs (HTTP layer, DB, full flow within one tenant).
+- Test happy path and error paths (e.g. missing tenant, invalid ID) with a **single tenant** context.
+- Location: e.g. `integration/*IntegrationTest.java` or controller/slice tests.
+
+### 4. Cross-tenant tests (MUST)
+
+- Add or update **cross-tenant tests** that prove **no data leaks** between tenants:
+  - Create or use data in **tenant A** (e.g. table, workflow, row).
+  - Switch context to **tenant B** (e.g. different `X-Tenant-Id` or user in different tenant).
+  - Call list/read/update/delete APIs that could expose tenant A's resources.
+  - **Assert** that tenant B never sees or can modify tenant A's data (empty list, 404, or 403 as appropriate).
+- Reuse the pattern from existing cross-tenant tests:
+  - `Feat039CrossTenantIntegrationTest.java`
+  - `WorkflowCreateExecuteCrossTenantIntegrationTest.java`
+  - `NavAccessVisibilityCrossTenantIntegrationTest.java`
+- Location: `integration/*CrossTenant*IntegrationTest.java` or similarly named.
+
+## Checklist for new features
+
+- [ ] Feature analysis or design doc includes a **Cross-Tenant** (or equivalent) section describing how the feature stays tenant-safe.
+- [ ] All new/changed list/read/write paths use **tenant context** and do not bypass tenant filters.
+- [ ] **Unit tests** added/updated for new logic (including tenant being passed or validated).
+- [ ] **Integration tests** added/updated for new APIs (single-tenant flows).
+- [ ] **Cross-tenant tests** added/updated proving that tenant A's data is never visible or modifiable by tenant B for the new behaviour.
+
+## Related
+
+- **FEAT-039** — Tenant-Level Isolation (foundation); **FEAT-163**, **FEAT-165** — hardening and second-opinion audit.
+- **java-tests.mdc** — Unit and integration test location and style.
+- **create-feature-documentation.mdc** — When creating a feature, add an analysis doc; include cross-tenant requirements there.
+- **trust-but-verify.mdc** — Verify scope and effect; for tenant-scoped changes, verify which tenant(s) are affected.

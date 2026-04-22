@@ -1,0 +1,37 @@
+---
+description: When new API endpoints are added, capabilities must be applied or added; applies to admin and user where appropriate
+globs: workflow/**/src/main/java/**/controllers/**/*.java
+alwaysApply: false
+---
+
+# API Endpoints — Capabilities Required
+
+**When you add or modify API endpoints** (e.g. new `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping` in a controller), you **must** ensure capabilities are applied or added. This applies to both **admin** and **user** roles where the feature is intended for them.
+
+## When this applies
+
+- You add a new endpoint (new method with `@GetMapping`, `@PostMapping`, `@PutMapping`, `@PatchMapping`, `@DeleteMapping`, etc.) in any controller under `**/controllers/**`.
+- You create a new controller that exposes HTTP endpoints.
+
+## What to do
+
+1. **Apply a capability to the endpoint**  
+   Annotate the handler method with `@HasCapability("CAPABILITY_NAME")` (from `com.liliflow.workflow.annotation.HasCapability`). Use an existing capability if it fits (e.g. `WORKFLOW_DEFINITION_READ`, `WORKFLOW_DEFINITION_WRITE`, `PDF_TEMPLATE_READ`, `PDF_TEMPLATE_WRITE`).
+
+2. **If no existing capability fits, add a new one**  
+   - Add the new capability string to `CapabilityService` in the appropriate role(s): `ROLE_CAPABILITIES` static block (`micro-services/workflow-engine/src/main/java/.../security/capability/CapabilityService.java`).  
+   - Ensure **ADMIN** and **USER** (or the roles that should have access) include the new capability.  
+   - Then annotate the new endpoint with `@HasCapability("NEW_CAPABILITY_NAME")`.
+
+3. **Document**  
+   - In `_docs/product/FEATURES_AND_IDEAS.md` (or the relevant feature doc), note the new or used capability and that it applies to admin and user (or which roles).
+
+## Quick reference
+
+| Action | Where |
+|--------|--------|
+| Add `@HasCapability("X")` on endpoint | Controller method |
+| Define new capability and assign to roles | `CapabilityService.java` → `ROLE_CAPABILITIES` (ADMIN, USER, VIEWER) |
+| Document API and capability | FEATURES_AND_IDEAS.md or feature doc |
+
+Do not ship new endpoints without a capability check; unprotected endpoints are a security risk.

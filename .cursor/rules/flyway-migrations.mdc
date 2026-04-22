@@ -1,0 +1,162 @@
+---
+description: Best practices for Flyway SQL migrations — idempotent DDL and safe existence checks
+globs: workflow/**/db/migration/*.sql
+alwaysApply: false
+---
+
+# Flyway Migrations — Idempotent DDL and Safe Checks
+
+**When you create or edit any Flyway migration under `db/migration/*.sql`**, follow these practices so migrations are **idempotent** and safe when the database is in a mixed state (partial runs, JPA-created objects, re-runs).
+
+## GOLDEN RULE — Never modify an applied migration
+
+**NEVER edit a migration file that has already been applied to any environment (dev, staging, production).** Flyway checksums every migration file; if the checksum changes, the application **will fail to start** with `FlywayValidateException: Migration checksum mismatch`.
+
+If you need to change something that an existing migration introduced:
+1. **Create a new migration** with the next available version number (e.g. `V1007__...`).
+2. Use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, etc. for idempotency.
+3. **Never** go back and edit V0, V1, V1000, or any previously applied migration.
+
+**Real incident (2026-02-06):** V0 baseline was modified after being applied to production (added `deployment_target` and `external_url` columns to `trained_model`). This caused a checksum mismatch (`-598629825` vs `-166257041`) that crashed the workflow-backend container on every deploy until reverted. The fix: revert V0 and create V1006 with the schema additions.
+
+## Core principle — Do not assume a "clean" state
+
+The database may have:
+- Partially applied migrations (rolled back mid-run).
+- Objects already created by JPA/DDL with "new" names.
+- Indexes or constraints that already exist under the target name.
+
+Always **check existence** before creating or renaming objects.
+
+## 1. Table renames
+
+**Problem:** `ALTER TABLE old_name RENAME TO new_name` fails if `new_name` already exists.
+
+**Practice:** Run the rename only when the source table exists and the target does not.
+
+```sql
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'old_name')
+       AND NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'new_name') THEN
+        ALTER TABLE old_name RENAME TO new_name;
+    END IF;
+END $$;
+```
+
+## 2. Index renames
+
+**Problem:** `ALTER INDEX IF EXISTS old_idx RENAME TO new_idx` fails if `new_idx` already exists (PostgreSQL has no "IF NOT EXISTS" for the target).
+
+**Practice:** Rename only when the source index exists and the target index does not.
+
+```sql
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'old_idx')
+       AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'new_idx') THEN
+        ALTER INDEX old_idx RENAME TO new_idx;
+    END IF;
+END $$;
+```
+
+Repeat for each index, or loop over index pairs in the same block.
+
+## 3. Constraint renames
+
+**Problem:** Using `'table_name'::regclass` throws if the table does not exist. Renaming to an already-existing constraint name also fails.
+
+**Practice:** Use `pg_constraint` + `pg_class` + `pg_namespace` (no regclass cast on possibly missing tables). Only rename when the table exists, the old constraint exists, and the new constraint does not.
+
+```sql
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'my_table')
+       AND EXISTS (
+           SELECT 1 FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE n.nspname = 'public' AND t.relname = 'my_table' AND c.conname = 'old_constraint_name'
+       )
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE n.nspname = 'public' AND t.relname = 'my_table' AND c.conname = 'new_constraint_name'
+       ) THEN
+        ALTER TABLE my_table RENAME CONSTRAINT old_constraint_name TO new_constraint_name;
+    END IF;
+END $$;
+```
+
+## 4. CREATE TABLE / CREATE INDEX
+
+- **Tables:** Prefer `CREATE TABLE IF NOT EXISTS` when the migration is the single source of the table. If the table might already exist with a different schema, consider a `DO $$ ... END $$` block that checks `pg_tables` before creating.
+- **Indexes:** Use `CREATE INDEX IF NOT EXISTS`. Avoid `CREATE INDEX CONCURRENTLY` inside the same migration as other DDL unless you use Flyway's non-transactional migration option — `CONCURRENTLY` cannot run inside a transaction and causes "mixed transactional and non-transactional" errors.
+
+## 5. INSERTs and NOT NULL columns
+
+- Ensure every NOT NULL column is either given a value or has a `DEFAULT` (e.g. `DEFAULT gen_random_uuid()`, `DEFAULT CURRENT_TIMESTAMP`).
+- Prefer explicit column lists in `INSERT` and explicit values (or subqueries) for `id`, `created_at`, etc., so migrations do not depend on table defaults that might differ (e.g. after JPA created the table).
+
+## 6. PostgreSQL-specific syntax
+
+- **Constraints:** PostgreSQL does not support `ADD CONSTRAINT IF NOT EXISTS`. Use a `DO $$ ... END $$` block that checks for the constraint (e.g. in `pg_constraint`) before adding it.
+- **Comments:** If the object might not exist, guard `COMMENT ON TABLE/COLUMN` in a block that checks existence first.
+
+## 7. CHECK constraint expansion — MUST come before the data change (CRITICAL)
+
+**This has caused three prod outages (V1109→V1110, V1199→V1200, and the V1199 prod failure).**
+
+**Rule:** Any migration that **inserts or updates rows** using a value that is **new to a CHECK constraint** (e.g. a new `dashboard_widget.type`) **must expand the constraint in the same migration, before the data change.**
+
+**Wrong — two separate migrations:**
+```sql
+-- V1199: tries to write 'FUNNEL_BAR' but constraint doesn't allow it yet → CRASH
+UPDATE dashboard_widget SET type = 'FUNNEL_BAR' WHERE ...;
+
+-- V1200: tries to fix it — but Flyway already halted at V1199, so this never runs
+ALTER TABLE dashboard_widget DROP CONSTRAINT IF EXISTS chk_dashboard_widget_type;
+ALTER TABLE dashboard_widget ADD CONSTRAINT chk_dashboard_widget_type CHECK (type IN (..., 'FUNNEL_BAR'));
+```
+
+**Correct — constraint expanded first, data change second, in the same migration:**
+```sql
+-- V1199: expand constraint FIRST, then write the new value
+ALTER TABLE dashboard_widget DROP CONSTRAINT IF EXISTS chk_dashboard_widget_type;
+ALTER TABLE dashboard_widget ADD CONSTRAINT chk_dashboard_widget_type
+  CHECK (type IN ('KPI', 'LINE', 'BAR', 'STACK_BAR', 'HORIZONTAL_BAR', 'AREA', 'PIE', 'DONUT', 'TABLE', 'FUNNEL', 'FUNNEL_BAR'));
+
+UPDATE dashboard_widget SET type = 'FUNNEL_BAR' WHERE ...;
+```
+
+**Applies to any CHECK constraint**, not just widget types. Always: DDL first, DML second — in the same file.
+
+**If you add a new allowed value to `dashboard_widget.type`** (or any other enum-like CHECK constraint), the constraint expansion and any INSERT/UPDATE using that value must be in the **same migration file**.
+
+---
+
+## 8. When a migration fails in prod — recovery pattern
+
+If a migration fails with `violates check constraint` (or similar) and leaves a `success = false` record in `flyway_schema_history`, the app won't start. Recovery steps:
+
+1. **Manually fix the root cause on the prod DB** (e.g. expand the constraint).
+2. **Delete the failed record:** `DELETE FROM flyway_schema_history WHERE version = 'XXXX' AND success = false;`
+3. Restart the app — Flyway retries the migration (now succeeds), then continues.
+
+Never write a "fix" migration that relies on `DELETE FROM flyway_schema_history` inside the migration itself — Flyway halts before that migration runs, so it never executes.
+
+---
+
+## Quick checklist for new migrations
+
+- [ ] **Golden rule:** Am I editing an existing migration? If yes, STOP — create a new one instead.
+- [ ] **CHECK constraint + new value:** Is this migration writing a value not yet in a CHECK constraint? → Expand the constraint **at the top of the same migration**, before the INSERT/UPDATE.
+- [ ] Table renames: conditional on (source exists AND target does not).
+- [ ] Index renames: conditional on (source index exists AND target index does not).
+- [ ] Constraint renames: use pg_constraint/pg_class checks; avoid regclass on possibly missing tables; check target constraint does not exist.
+- [ ] CREATE INDEX: use `IF NOT EXISTS`; avoid CONCURRENTLY in transactional migrations.
+- [ ] INSERT: explicit columns and values for NOT NULL/default columns.
+- [ ] COMMENT / other DDL: guard with existence checks when the object might not exist.
+
+Following these practices avoids "relation already exists", "relation does not exist", "null value in column", and "violates check constraint" failures when Flyway runs against a partially migrated or JPA-influenced database.

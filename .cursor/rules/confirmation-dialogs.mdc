@@ -1,0 +1,42 @@
+---
+description: Use the standard ConfirmationDialog for all confirmation and destructive-action pop-ups; do not use window.confirm or ad-hoc modals
+globs: workflow/workflow-designer/**/*.{tsx,ts,jsx,js}
+alwaysApply: false
+---
+
+# Confirmation and Pop-up Messages — Standard Pattern
+
+**When you need a confirmation dialog** (e.g. "Are you sure you want to delete?", "Confirm action?", or any yes/no pop-up), use the **same standard pattern** so the app has a consistent, accessible UX.
+
+## Rule
+
+1. **Use the shared `ConfirmationDialog` component**  
+   Import from `./ConfirmationDialog` (or the correct path in your module) and render it with:
+   - `isOpen` — boolean state (e.g. `deleteConfirmId != null`)
+   - `title` — short dialog title (e.g. "Soft-delete document?")
+   - `message` — clear explanation of what will happen and any caveats
+   - `confirmText` — primary button label (e.g. "Delete", "Confirm", "Save")
+   - `cancelText` — secondary button label (default "Cancel")
+   - `type` — `'warning' | 'info' | 'danger'` (use `danger` for destructive actions like delete)
+   - `onConfirm` — callback that performs the action and then closes (e.g. clear state, call API)
+   - `onCancel` — callback that closes without acting (e.g. clear state)
+
+2. **Do not use `window.confirm()` or `window.alert()`** for user-facing confirmations or messages.  
+   - Replace `window.confirm(...)` with opening `ConfirmationDialog` (store the context in state, e.g. id to delete; on confirm, run the action and clear state).  
+   - For non-blocking success/error feedback, prefer toasts or inline messages instead of `window.alert()` where the app already has a toast/notification system.
+
+3. **Flow**  
+   - User triggers action (e.g. clicks "Delete document") → set state so `ConfirmationDialog` is open (e.g. `setDeleteConfirmDocId(id)`).  
+   - User clicks "Cancel" or backdrop → `onCancel` → clear state.  
+   - User clicks primary button (e.g. "Delete") → `onConfirm` → clear state, then perform the async action (e.g. call API, refresh list).
+
+## Quick reference
+
+| Need | Use |
+|------|-----|
+| Yes/No confirmation (delete, overwrite, etc.) | `ConfirmationDialog` with appropriate `type` and `confirmText` |
+| Destructive action (delete, remove) | `ConfirmationDialog` with `type="danger"` and `confirmText="Delete"` (or similar) |
+| Informational confirm | `ConfirmationDialog` with `type="info"` |
+| Success/error feedback | Toasts or inline messages; avoid `window.alert` for consistency |
+
+Keep all pop-up confirmations consistent so users get the same look, keyboard/accessibility behavior, and escape/backdrop behavior everywhere.

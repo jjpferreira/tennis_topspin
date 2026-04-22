@@ -1,0 +1,78 @@
+---
+description: After modifying Java source files, always force a clean compile before restarting the workflow-engine backend — Maven's incremental compiler can silently use stale bytecode
+globs: workflow/micro-services/workflow-engine/src/main/java/**/*.java,workflow/micro-services/workflow-engine/pom.xml
+alwaysApply: false
+---
+
+# Backend Recompile — Force Clean Compile After Java Changes
+
+**Problem:** Maven's incremental compiler (`maven-compiler-plugin`) caches compiled classes in `target/classes/`. When Java source files are modified (especially enums, new classes, or renamed fields), the compiler can decide "Nothing to compile - all classes are up to date" and **skip compilation entirely**. The backend then runs with **stale bytecode** that does not include the changes. This causes silent bugs (e.g. new enum values fall through to defaults, new classes are not found, changed logic is not applied).
+
+**How we've been bitten:** Adding `RENDER_EMAIL_TEMPLATE` to the `StepType` enum in `WorkflowDefinition.java` — the backend kept using the old bytecode without the new enum value, so `fromString("RENDER_EMAIL_TEMPLATE")` silently fell back to `TASK`. The step looked correct on drag-and-drop (frontend-only) but reverted to a generic TASK on save/reload (backend used old enum).
+
+**Rule:** After modifying **any** Java source file under `workflow-engine/src/main/java/`, you **must** run a forced clean compile before restarting the backend.
+
+## Mandatory steps
+
+### 1. Force clean compile
+
+```bash
+cd workflow/micro-services/workflow-engine
+mvn clean compile -DskipTests -q
+```
+
+This deletes `target/` and recompiles all sources from scratch.
+
+### 2. Verify critical changes (when adding enums, classes, or fields)
+
+For **enum changes** (e.g. new `StepType` value), verify the compiled bytecode includes the change:
+
+```bash
+javap -p target/classes/com/liliflow/workflow/provider/model/WorkflowDefinition\$StepType.class | grep -i "MY_NEW_ENUM"
+```
+
+For **new classes**, verify the `.class` file exists:
+
+```bash
+ls target/classes/com/liliflow/workflow/path/to/MyNewClass.class
+```
+
+### 3. Restart the backend
+
+After clean compile, restart the workflow engine:
+
+- If using `restart.sh`: it runs `mvn spring-boot:run` which will see the freshly compiled classes as up-to-date (good — no double compile).
+- If restarting manually: `mvn spring-boot:run` from the workflow-engine directory.
+
+### 4. Confirm in startup log
+
+Check the first lines of `backend.log`. You should **not** see:
+
+```
+[INFO] Nothing to compile - all classes are up to date
+```
+
+If you see that line after a `mvn clean compile`, something went wrong (Maven is looking at a different `target/`). Verify your working directory.
+
+## When this applies
+
+- You add or remove an **enum constant** (e.g. `StepType`, `WorkflowDefinitionState`)
+- You add a **new Java class** (e.g. new executor, service, entity)
+- You change **method signatures**, **field types**, or **annotations** (e.g. `@JsonCreator`, `@Column`)
+- You modify **any** `.java` file and plan to test it against the running backend
+- You are debugging a "works in frontend but not in backend" issue
+
+## Common symptoms of stale bytecode
+
+| Symptom | Likely cause |
+|---------|-------------|
+| New enum value silently falls back to default (e.g. TASK) | Enum constant not in compiled bytecode |
+| `ClassNotFoundException` or `NoSuchMethodError` at runtime | New/renamed class or method not compiled |
+| Backend ignores code changes you just made | `target/classes/` has old `.class` files |
+| `backend.log` shows "Nothing to compile" after source changes | Maven's incremental compiler didn't detect the change |
+
+## Related
+
+- **step-type-look-and-feel.mdc** — Preserve step types so custom steps never collapse to TASK; this rule ensures the backend actually has the enum values.
+- **new-workflow-step-left-menu-checklist.mdc** — Row 9 (Backend): enum, executor, and wiring. After adding the backend enum, you must clean compile.
+- **java-tests.mdc** — Generate tests when core Java code changes; tests also need `mvn clean compile` to pick up changes.

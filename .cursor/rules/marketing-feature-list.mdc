@@ -1,0 +1,47 @@
+---
+description: When a feature is completed, add it to the marketing feature list
+globs: _docs/product/FEATURES_AND_IDEAS.md,_docs/product/MARKETING_FEATURE_LIST.md,_docs/product/kaban/**
+alwaysApply: false
+---
+
+# Marketing Feature List — Completed Features
+
+**When a feature is marked COMPLETED** (status set to `[COMPLETED]`, moved to Completed Features in `FEATURES_AND_IDEAS.md` per the feature-kanban rule), you **must also add it** to the marketing feature list so sales and marketing have an up-to-date list of shipped capabilities.
+
+## Target document
+
+- **File:** `_docs/product/MARKETING_FEATURE_LIST.md`
+- **Purpose:** Marketing and sales feature documentation — lists **existing** (implemented) features. See the document’s “Note” and Table of Contents for structure.
+
+## What to do when closing a feature
+
+1. **After** updating the feature to COMPLETED and moving it to the Completed Features section (see `feature-kanban.mdc`), **add an entry** for that feature to `MARKETING_FEATURE_LIST.md`.
+2. **Placement:** Add under the most relevant existing section (e.g. “Visual Workflow Designer”, “System Templates”, “Workflow Library & Templates”). If the feature spans a new area, add a new `### Subsection` under the appropriate `## Section` and update the Table of Contents if needed.
+3. **Add or update www documentation (user manual).** Create or update the corresponding doc in `_docs/www/` so the feature is documented on **https://www.liliflow.ai/docs** (e.g. [workflow-builder](https://www.liliflow.ai/docs?article=workflow-builder)). Use **user-manual style** (how to use, step-by-step, Overview, Last Updated). See **`www-documentation.mdc`** for location, structure, and examples.
+4. **Format (marketing list):** Match the document’s style:
+   - **Completed:** YYYY-MM-DD — **Mandatory.** Use the same date as in the feature's Completed Features entry in `FEATURES_AND_IDEAS.md`. This gives marketing/sales visibility on when each capability shipped and supports reporting and timelines.
+   - **Description:** One or two sentences, marketing-friendly (what it is, why it matters).
+   - **Key Features:** Bullet list of concrete, customer-facing points (no internal jargon unless necessary).
+
+## Example (style to match)
+
+```markdown
+### System Workflow Templates
+**Completed:** 2026-02-05
+**Description:** Ready-to-use workflow templates when creating a new workflow. Choose from system templates (e.g. RAG Q&A, RAG Single Document Ingestion), then create a copy in one click and open it in the designer.
+
+**Key Features:**
+- **Create from system template** — Third option in the New Workflow flow (with New flow and Import)
+- **Template grid** — Browse template cards with workflow type, category, and tags
+- **Copy-on-use** — Selecting a template creates a new user-owned workflow and opens the designer
+- **Filters** — Filter by workflow type, category, and tags; dashboard-style search and filter chips
+```
+
+## Checklist
+
+- [ ] Feature is already set to COMPLETED and moved to Completed Features (feature-kanban.mdc).
+- [ ] Entry added to `MARKETING_FEATURE_LIST.md` in the right section.
+- [ ] **Completed:** YYYY-MM-DD is present (same date as in Completed Features) for visibility later.
+- [ ] **Description** and **Key Features** are marketing/sales oriented and consistent with the rest of the document.
+- [ ] Table of Contents updated if you added a new section or subsection.
+- [ ] **www documentation** — User-manual style doc created or updated in `_docs/www/` (see `www-documentation.mdc`) so the feature appears on https://www.liliflow.ai/docs.

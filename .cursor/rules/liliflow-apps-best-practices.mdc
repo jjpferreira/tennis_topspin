@@ -1,0 +1,79 @@
+---
+description: Best practices when creating or defining LiliFlow apps (package_json, DataTables, forms, seed data)
+alwaysApply: true
+---
+
+# LiliFlow Apps — Best Practices
+
+When **creating or defining apps** for LiliFlow (new app in FEATURES_AND_IDEAS, app_definition package_json, migrations that add/update apps, or analysis docs for app features), follow these principles so apps are consistent, demo-ready, and correctly wired (dropdowns, references, tenant/scoped data).
+
+## When this applies
+
+- Adding or editing an **app definition** (e.g. `app_definition.package_json`, migrations that INSERT/UPDATE `app_definition`).
+- Writing or updating **app package** content: `dataTables`, `workflows`, `forms`, `seedData`.
+- Designing a **new app** in analysis docs (e.g. FEAT_XXX_APP_ANALYSIS.md) or in FEATURES_AND_IDEAS.md.
+- Implementing an app that will be installed via the Apps framework (FEAT-252).
+
+---
+
+## 1. Relational fields → reference type (not string)
+
+- **Rule:** Any column that references another DataTable (e.g. category, assignee, parent record) must use **type `"reference"`** in the package, not `"string"` or `"uuid"`.
+- **Why:** Reference columns get same-tenant validation, and forms automatically become dropdowns that load options from the referenced table.
+- **In package_json (dataTables[].columns):**
+  - Use `"type": "reference"` plus:
+    - **referenceTable** (required): logical name of the target table in the same package (e.g. `"expense_category"`).
+    - **referenceValueColumn** (optional, default `"id"`): column in target table whose value is stored (usually row id).
+    - **referenceDisplayColumn** (optional, default `"name"`): column shown in the UI (e.g. dropdown label).
+  - Example: `{ "name": "category_id", "type": "reference", "nullable": true, "referenceTable": "expense_category", "referenceDisplayColumn": "name" }`.
+- **Table order:** Declare the **referenced table before** the table that references it in `dataTables` (e.g. `expense_category` before `expense`).
+
+---
+
+## 2. Forms: dropdowns for reference fields
+
+- **Rule:** Form fields that map to a **reference** column must be rendered as a **dropdown (select)** with options loaded from the referenced DataTable.
+- **How it works:** The installer (AppService) already sets `uiComponent: "select"`, `optionSource: "datatable"`, and the column’s reference target/value/display columns on the form field config when the column type is `reference`. The UI (FormRenderer) then loads options from the referenced table. No extra form config needed in the package beyond listing the column in `fields[]`.
+- **Check:** In the app package, ensure the **column** is type `reference` with `referenceTable`; the form only needs `columnName` (and optional `label`, `required`, `orderIndex`). Do **not** define reference/lookup fields as plain string columns if they point to another table.
+
+---
+
+## 3. Standard columns (tenant_id, created_by)
+
+- **Rule:** Rely on the platform to add **tenant_id** and **created_by** to app-created DataTables when not present. Do not duplicate them in the package unless you need different semantics.
+- **Why:** Enables tenant filtering and “all my tasks” / “created by me” patterns; the engine auto-fills them on row insert.
+- **In package:** Omit `tenant_id` and `created_by` from `columns` unless the app explicitly needs them with different behaviour.
+
+---
+
+## 4. Seed data and related data ($ref)
+
+- **Rule:** Use **seedData** so the app is useful and demo-ready after install. For child rows that reference parent rows, use **`$ref:tableName:index`** (0-based index into that table’s seeded row ids).
+- **Example:** Seed `expense_category` first with e.g. Travel, Meals, Supplies; then in `expense.seedData` use `"category_id": "$ref:expense_category:0"`, `"$ref:expense_category:1"`, etc.
+- **Order:** Parent tables (and their seedData) must appear before child tables in `dataTables` so refs resolve at install time. Invalid or out-of-range refs must cause install to **fail fast** with a clear error.
+
+---
+
+## 5. Package structure and references
+
+- **Logical names only:** In the package use logical table/form/workflow names (e.g. `dataTableRef: "expense"`, `referenceTable: "expense_category"`). No UUIDs; resolution to IDs happens at install in the target tenant.
+- **Validation:** Every `dataTableRef` in forms and every `referenceTable` in columns must match a `dataTables[].name`. Referenced tables must be defined earlier in the same package.
+
+---
+
+## 6. Checklist for a new or updated app
+
+- [ ] All relational/FK-style columns use **type `"reference"`** with **referenceTable** (and optional referenceValueColumn / referenceDisplayColumn).
+- [ ] **dataTables** order: parent tables before tables that reference them.
+- [ ] **Forms:** Fields for reference columns need only **columnName** (and label/required/orderIndex); dropdown and options source are set from the column’s reference metadata.
+- [ ] **seedData** used where it helps demos; related rows use **$ref:tableName:index**.
+- [ ] No duplicate **tenant_id** / **created_by** in columns unless intentionally overriding platform behaviour.
+- [ ] App design/analysis doc (and FEATURES_AND_IDEAS entry) describes tables, reference columns, and form behaviour (including dropdown from DataTable) per **create-feature-documentation.mdc** and **cross-tenant-compliance.mdc** where applicable.
+
+---
+
+## Reference
+
+- **FEAT-252:** `_docs/product/analysis/FEAT_252_APPS_INSTALL_DEPLOY_ANALYSIS.md` (§11 Package schema: dataTables, forms, seedData, reference columns).
+- **FEAT-254 (Expense Tracker):** Example app with reference column (category_id → expense_category), seedData, and form dropdown.
+- **FEAT-166:** Reference column type and same-tenant validation in DataTableService.

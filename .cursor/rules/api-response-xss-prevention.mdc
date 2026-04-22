@@ -1,0 +1,20 @@
+---
+description: Never return unencoded user/external data in API responses — prevent XSS
+globs: **/*Controller*.java,**/*Controller*.ts,**/*Controller*.tsx,**/controllers/**/*.java,**/controllers/**/*.ts,**/controllers/**/*.tsx
+alwaysApply: false
+---
+
+# API responses — prevent XSS (no raw user/external data)
+
+When **writing or editing** code that returns HTTP response bodies (JSON, CSV, XML, or HTML):
+
+1. **Never** put user-controllable or external data (query params, DB, upstream APIs, exception messages) directly into the response body without encoding. Clients may render it in HTML (e.g. innerHTML, document.write, or CSV opened in a browser), which leads to XSS.
+
+2. **Do** encode string values before returning:
+   - **Java (workflow-engine, document-service, crawler-service):** Use `HtmlEncoder` (or equivalent in that service). For JSON bodies: `HtmlEncoder.encodeResponseObject(body)` or `HtmlEncoder.encodeMapStrings(map)`; for single strings in error maps: `HtmlEncoder.encode("...")` and `HtmlEncoder.encodeOrEmpty(message)`.
+   - **CSV/plain text:** Encode each cell or field (e.g. `csvEscape(HtmlEncoder.encodeOrEmpty(value))`) so that if the output is ever rendered in an HTML context, it is safe.
+   - **Frontend (TS/React):** When inserting API response data into the DOM, use safe APIs (e.g. `textContent`, or a sanitizer) — never `dangerouslySetInnerHTML` with raw API data.
+
+3. **Apply to:** success bodies, error maps (`error`, `message`), CSV/export content, and any response that includes data from the user, database, or third-party APIs.
+
+**Reference:** Existing fixes in `LlmProxyController`, `OllamaProxyController`, `ModelTrainingController`, `ApplicationConfigController`, `AuditLogController` (export), `AIModelController`, and in document-service and crawler-service controllers. Add unit tests that assert XSS payloads (e.g. `<script>alert(1)</script>`) appear encoded (e.g. `&lt;script&gt;...`) in the response and never raw.

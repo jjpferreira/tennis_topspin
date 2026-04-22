@@ -1,0 +1,30 @@
+---
+description: When adding or changing AI chat or workflow start endpoints, always set initiator so consumption can be monitored by user.
+alwaysApply: false
+globs: 
+  - "workflow/micro-services/workflow-engine/**/*Chat*.java"
+  - "workflow/micro-services/workflow-engine/**/*Workflow*Controller*.java"
+  - "workflow/micro-services/workflow-engine/**/PublicChat*.java"
+  - "workflow/micro-services/workflow-engine/**/AIChat*.java"
+  - "workflow/micro-services/workflow-engine/**/WorkflowExecutionEngine.java"
+  - "workflow/micro-services/workflow-engine/**/AiMonitoring*.java"
+---
+
+# AI Consumption Attribution
+
+**Rule:** Every user-facing AI chat or workflow start path must capture **who** made the request (initiator) so we can monitor consumption by user in AI Monitoring.
+
+When you add or change:
+- An endpoint that **starts a workflow** (e.g. start, chat that runs a workflow)
+- An endpoint that **calls AI** and persists to ai_chat_requests (e.g. /definitions/chat)
+- Any service that builds `WorkflowContext` or saves to `AIChatRequestEntity`
+
+then:
+
+1. **Workflow runs:** Set `WorkflowContext.initiator` (and ensure it is persisted on `workflow_instance.initiator`). Prefer the **authenticated username** when the request is authenticated (e.g. `SecurityContextHolder.getContext().getAuthentication().getName()`).
+2. **Chat-only requests (no workflow instance):** When saving to `ai_chat_requests`, set `AIChatRequestEntity.initiator` from the authenticated user when present.
+3. **Unauthenticated flows:** Use a fixed identifier (e.g. `"public-chat"`) or an optional client-supplied id.
+
+**Reference:** `workflow/micro-services/workflow-engine/docs/ai/AI_CONSUMPTION_ATTRIBUTION_RULE.md` — entry points, where initiator is stored, and checklist for new endpoints.
+
+**Related:** BUG-012 (AI monitoring initiator dropdown and charts); V1032 (ai_chat_requests.initiator).

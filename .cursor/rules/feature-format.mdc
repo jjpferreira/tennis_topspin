@@ -1,0 +1,77 @@
+---
+description: Ensure every feature and bug block in FEATURES_AND_IDEAS.md follows the pattern required by the Kanban parser
+globs: _docs/product/FEATURES_AND_IDEAS.md
+alwaysApply: false
+---
+
+# Feature & Bug Block Format — Required Pattern
+
+When you **add or edit** any feature or bug in **`_docs/product/FEATURES_AND_IDEAS.md`**, the block **must** follow this pattern so the Kanban parser (`parse_features_md.py`) includes it and the board displays it correctly. **When adding a new feature or bug:** never duplicate an existing ID — see **`feature-bug-id-no-duplicates.mdc`** (always use the next available FEAT-XXX or BUG-XXX).
+
+## Required structure (every active feature/bug block)
+
+1. **Heading (first line)**  
+   - **Features:** `### [STATUS] [PRIORITY] FEAT-XXX: Short Title`  
+   - **Bugs:** `### [STATUS] [PRIORITY] BUG-XXX: Short Title`  
+   - **Completed:** `### ✅ FEAT-XXX: Title` or `### ✅ BUG-XXX: Title — DONE`  
+   - Allowed **STATUS:** `[IDEA]`, `[PLANNED]`, `[IN-PROGRESS]`, `[COMPLETED]`, `[CANCELLED]`, `[REMOVED]`, or (bugs) `[PLANNED]` etc.  
+   - Allowed **PRIORITY:** `[HIGH]`, `[MEDIUM]`, `[LOW]` (optional for some stubs).
+
+2. **ID line (mandatory)**  
+   - **Features:** `**Feature ID:** \`FEAT-XXX\` | **Status:** \`[STATUS]\` | **Priority:** \`[PRIORITY]\` | **Added:** YYYY-MM-DD | **Last Updated:** YYYY-MM-DD` (or **Completed:** for done items).  
+   - **Bugs:** `**Bug ID:** \`BUG-XXX\` | **Status:** \`[PLANNED]\` | **Priority:** \`[HIGH]\` | **Added:** YYYY-MM-DD | **Last Updated:** YYYY-MM-DD`  
+   - **Creation date (required):** **Added:** YYYY-MM-DD is **mandatory** for every new feature or bug. It is the **date the feature/bug was created** (when the entry was first added to the backlog). Never omit **Added:** when creating a new block — traceability and the Kanban depend on it.  
+   - **When adding a new feature or bug:** Use **today's date** (the actual date when you are writing the entry) for **Added:** and **Last Updated:**. Do not use a past or guessed date — wrong dates break traceability. If the conversation or system provides a current date, use that; otherwise use the date the user is working in (e.g. "today" in the user's message).  
+   - **Keeping dates up to date:** When you **edit** an existing feature or bug block (change description, status, related, etc.), update **Last Updated:** to the date of that edit (today). Do **not** leave **Last Updated:** stale — missing or wrong dates make traceability and the Kanban "across time" view unreliable. If doing a bulk date fix (e.g. "add 10 March to these features"), set **Added:** and **Last Updated:** to the date the user specifies.  
+   - The parser **only** includes blocks that contain **`**Feature ID:** \`FEAT-XXX\`` or **`**Bug ID:** \`BUG-XXX\``** (with backticks). Blocks without this line are **skipped** and will not appear on the Kanban.
+
+3. **Description**  
+   - `**Description:**` One or more lines describing the feature or bug (required for clarity; parser uses it for card text).
+
+4. **Optional but recommended**  
+   - `**Related:**` FEAT-XXX (relation), BUG-XXX.  
+   - `**Analysis:**` [text](analysis/….md)  
+   - `**Complexity:**` Low | Medium | High  
+   - `**Business Value:**` 1–5 or 1–10  
+   - `**Added:**` YYYY-MM-DD — Date the feature was added to the backlog. Preserved when moving to Completed so the Kanban can show both **Added** and **Completed** for monitoring.  
+   - For bugs: `**Pentest audit:**` or `**Scope (summary):**` bullets  
+
+5. **Block end**  
+   - Separate blocks with `---` on its own line.
+
+## Completed Features block — strict format (enforced)
+
+Every block under **## Completed Features ✅** must follow this **exact** format. The dashboard uses **Completed:** date for "Completed on &lt;date&gt;" and daily bars; missing date means the item never appears there.
+
+**Mandatory:**
+
+1. **Heading:** `### ✅ FEAT-XXX: Title` (or `### ✅ BUG-XXX: Title`).
+2. **Metadata (one line), including Completed date:**  
+   `**Feature ID:** \`FEAT-XXX\` | **Status:** \`[COMPLETED]\` | **Priority:** \`[HIGH]\` | **Completed:** YYYY-MM-DD`  
+   - **Completed:** YYYY-MM-DD is **required**. Use the **relevant date** — the actual date the feature, bug, or work was completed (e.g. the day the implementation was finished, the pentest was signed off, or the ticket was closed). Do **not** use a different date for convenience (e.g. do not set to "today" just so it appears in today's dashboard filter). Without the correct date, the item will not show in "Completed on &lt;date&gt;" or the daily chart for the right day.
+   - Optional: `| **Added:** YYYY-MM-DD` — Date the feature was added to the backlog. Include this when moving to Completed so the Kanban shows both Added and Completed for monitoring.
+   - Optional suffix: `| **Last updated:** YYYY-MM-DD`.
+3. **Blank line** (no **Complexity:** or **Business Value:** between metadata and Description).
+4. **Description:** `**Description:**` … (required).
+5. **Rest of block:** **Implementation completed:**, **Analysis:**, **Related:**, etc. **Complexity:** and **Business Value:** may appear **after** **Related:** or at the end, not between metadata and **Description:**.
+
+**Wrong:** metadata without `**Completed:** YYYY-MM-DD`; or metadata then `**Complexity:**` / `**Business Value:**` then **Description:**.  
+**Right:** metadata line (with **Completed:** date) → blank line → **Description:** → … → **Related:** → **Complexity:** / **Business Value:** if needed.
+
+When you add or move a feature to Completed Features, always include **Completed:** YYYY-MM-DD and use this order. When editing existing completed blocks, add a **Completed:** date if missing and fix any that put **Complexity:** / **Business Value:** between metadata and **Description:**.
+
+## Stubs (e.g. "see Completed Features")
+
+Short stubs like `### [COMPLETED - see Completed Features] FEAT-098: Title` that **intentionally** omit the full **Feature ID:** line (to avoid duplicate IDs) are allowed; the parser will skip them and the full entry lives in the Completed Features section.
+
+## Checklist when adding or editing a block
+
+- [ ] First line is `### [STATUS] [PRIORITY] FEAT-XXX: Title` or `### [STATUS] [PRIORITY] BUG-XXX: Title` (or `### ✅ …` for completed).  
+- [ ] Block contains **`**Feature ID:** \`FEAT-XXX\`` or **`**Bug ID:** \`BUG-XXX\``** (with backticks) so the parser does not skip it.  
+- [ ] **Description:** is present.  
+- [ ] **Related:** is present when there are related features/bugs (see `feature-relationships.mdc`).  
+- [ ] **Completed blocks only:** metadata line includes **Completed:** YYYY-MM-DD (mandatory); use the **relevant/actual** completion date (when the work was done), not a convenience date; then blank line → **Description:** (no **Complexity:** / **Business Value:** between metadata and **Description:**).  
+- [ ] **Dates:** **Added:** (creation date) is **required** for every new feature/bug — the date the feature got created must be there. New blocks have **Added:** and **Last Updated:** set to the correct date (today or user-specified). When editing a block, **Last Updated:** is set to the date of the edit. Do not leave dates stale or wrong — traceability depends on it.
+- [ ] After saving, run `python3 _docs/product/kaban/parse_features_md.py` so the Kanban updates (and any format warnings are shown).
+
+**Related rules:** `create-feature-documentation.mdc`, `feature-kanban.mdc`, `feature-relationships.mdc`.

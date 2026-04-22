@@ -1,0 +1,32 @@
+---
+description: When user asks to build, create, or add a LiliFlow app (Lili App), follow the canonical app build pattern.
+alwaysApply: true
+---
+
+# Build a LiliFlow App — Follow the Pattern
+
+When the user asks to **"build an app"**, **"create an app"**, **"add a LiliFlow app"**, **"new Lili app"**, or similar (e.g. "I want an app for X", "Create an app that does Y"):
+
+1. **Read and follow** the full pattern: **`_docs/product/guides/LILIFLOW_APP_BUILD_PATTERN.md`**. Do not improvise; the pattern defines app identity, package_json structure (dataTables, workflows, forms, navigation), migrations, and dashboards.
+
+2. **Product first (create-feature-documentation):**
+   - Add a **feature entry** in **`_docs/product/FEATURES_AND_IDEAS.md`** (next FEAT-XXX; use **today's date** for Added/Last Updated).
+   - Create an **analysis doc** under `_docs/product/analysis/` (e.g. `FEAT_XXX_<APP_NAME>_ANALYSIS.md`) with ERD/tables, reference columns, workflows, forms, and a **Cross-tenant** note.
+
+3. **App build steps (from the pattern):**
+   - **Migration (new file):** INSERT into **app_definition** with a **fixed UUID** (allocate a new one for new apps), **slug** (kebab-case), **version** (semver), **name**, **description**, **icon_name**, **icon_color**, **`phase`** (`ALPHA`, `BETA`, or `GA` — default new catalogue apps often `ALPHA` until promoted), and **package_json**.
+   - **package_json** must include:
+     - **dataTables**: Parent tables first; use **type `"reference"`** with **referenceTable** for any FK-style column; **seedData** with **`$ref:tableName:index`** for related rows.
+     - **workflows**: workflowType, version, **steps** (id, type, nextStep, parameters; use tableRef where a table id is needed).
+     - **forms**: name, dataTableRef, operation, **fields** (columnName, label, required, orderIndex); optional workflowType/workflowVersion.
+     - **navigation** — use **grouped navigation** for apps with more than 4 entities. Wrap related items in **group** nodes (`"type": "group"`) with meaningful phase/domain labels and `"icon"` names (Lucide, resolved via `ICON_NAME_MAP` in `AppDataView.tsx`). Each group has a `children[]` array of leaf items (`type: "grid"` or `"form"`). Typical grouping pattern: Planning → core records; Sourcing/Pipeline → request or proposal tables; People → contacts/attendees; Finance → contracts/budgets/invoices; Other domain-specific phases. Flat navigation is only acceptable for apps with ≤ 4 nav items. **If a new app's navigation starts flat but later grows, add a follow-up migration** (UPDATE app_definition SET package_json = jsonb_set(..., '{navigation}', ...)) to introduce groups — never edit the original migration.
+   - **Dashboard:** Dashboards are **not** in package_json. Add a **separate migration** that, for each tenant with the app installed, creates **dashboard** (slug, name, **app_id** = tenant_app.id) and **dashboard_widget** rows (type, title, data_source_type DATA_TABLE, data_source_config with dataTableName, aggregation, groupBy, etc.). See Dashboard Framework doc and V1114/V1107 for examples. If you add a **Command Centre** component in `AppDataView` with **inline data tables**, wire **GridSettingsPanel** + **userScopedGridKey** per **app-command-centre-dashboard-grids.mdc** and **LILIFLOW_APP_BUILD_PATTERN.md §8.1** (same pattern as Partner MDF / Billing).
+
+4. **Rules to obey:**
+   - **liliflow-apps-best-practices.mdc**: Reference columns (not string for FKs), table order (parent before child), seedData $ref, no duplicate tenant_id/created_by in columns unless intended.
+   - **flyway-golden-rule.mdc**: **Never edit** an applied migration; **create a new migration** for any change.
+   - **cross-tenant-compliance.mdc**: App data is tenant-scoped; document and test that tenant B cannot see or modify tenant A's app data (unit + integration + cross-tenant tests as applicable).
+
+5. **Deliverables:** Feature entry, analysis doc, one or more Flyway migrations (app_definition + optional dashboard), and tests (install, resources, cross-tenant if new APIs or data paths). Optionally a workflow YAML under `workflow-engine/src/main/resources/workflows/` only if the workflow is shared outside the app; prefer **inline steps** in package for app-specific workflows.
+
+**Reference:** Full pattern and checklist: **`_docs/product/guides/LILIFLOW_APP_BUILD_PATTERN.md`**. Example apps: Expense Tracker (V1091, V1093–V1095, V1114), CRM Pro (V1098, V1099, V1101), dashboard migrations (V1107, V1111–V1114).

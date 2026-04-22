@@ -1,0 +1,35 @@
+---
+description: Local workflow definitions must be YAML files in the engine's resources/workflows directory
+globs: workflow/micro-services/workflow-engine/src/main/resources/workflows/**
+alwaysApply: false
+---
+
+# Local Workflows — Where and Format
+
+**All local workflow definitions** that the workflow-engine loads at runtime must be stored in the **workflows resources directory** as **YAML** files.
+
+## Location (single source of truth)
+
+- **Directory:** `workflow/micro-services/workflow-engine/src/main/resources/workflows/`
+- **Format:** YAML only (`.yaml`)
+- **Why:** The engine's definition loader is configured (in `application.yml`) with `workflow.definitions.path: workflows/**/*.yaml`. Only files in this directory on the classpath are picked up.
+
+## Rules
+
+1. **When creating or adding a new local workflow:** Add a new `.yaml` file **in** `workflow/micro-services/workflow-engine/src/main/resources/workflows/`. Do **not** create workflow definition files in `docs/workflows/`, `docs/examples/`, or as JSON in the repo for the purpose of engine loading — use the resources workflow directory.
+2. **When editing an existing local workflow:** Edit the corresponding `.yaml` file in that same directory.
+3. **Structure:** Use the same schema as existing workflows: `workflowType`, `version`, `description`, `steps` (array of steps with `stepId`, `type`, `nextStep`, `errorStep` where applicable, `parameters`). Optionally: `globalVariables`, `categories`, `configuration`, `timeout`.
+
+## Reference
+
+- **Config:** `workflow/micro-services/workflow-engine/src/main/resources/application.yml` — `workflow.definitions.path`
+- **Loader:** Workflow definition loader / ingestion uses this path to discover and load YAML workflows (hybrid or YAML-only mode).
+- **README:** `workflow/micro-services/workflow-engine/src/main/resources/workflows/README.md` — short doc for this folder.
+
+## Examples in this directory
+
+- `agentic-rag-ai-demo.yaml` — Agentic RAG (new AI) step
+- `rag-qa-workflow.yaml` — RAG with vector search + AI
+- `simple-ok-demo.yaml` — Simple task acknowledgment
+
+If you need a workflow to be **loadable by the engine** (e.g. for tests, demos, or default workflows), put it **here** as YAML. Use `docs/workflows/` or other docs only for **documentation or examples** that are not loaded by the engine.
