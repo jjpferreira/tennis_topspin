@@ -1,0 +1,3033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Features & Ideas — Kanban</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --surface: #18181c;
+      --surface-hover: #1f1f24;
+      --border: #2a2a30;
+      --text: #e4e4e7;
+      --text-muted: #71717a;
+      --accent: #6366f1;
+      --accent-dim: #4f46e5;
+      --high: #ef4444;
+      --medium: #f59e0b;
+      --low: #22c55e;
+      --completed: #10b981;
+      --bug: #f43f5e;
+    }
+    html.theme-light {
+      --bg: #f4f4f5;
+      --surface: #fff;
+      --surface-hover: #e4e4e7;
+      --border: #d4d4d8;
+      --text: #18181b;
+      --text-muted: #52525b;
+      --accent: #4f46e5;
+      --accent-dim: #4338ca;
+      --high: #dc2626;
+      --medium: #d97706;
+      --low: #16a34a;
+      --completed: #059669;
+      --bug: #e11d48;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+    .header p { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
+    .filters {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding: 0.75rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+    .search-wrap {
+      flex: 1;
+      min-width: 240px;
+    }
+    .order-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .order-wrap label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .order-wrap select {
+      padding: 0.4rem 1.75rem 0.4rem 0.6rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2371717a' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.5rem center;
+    }
+    .order-wrap select:hover { border-color: var(--accent-dim); }
+    .order-wrap select:focus { outline: none; border-color: var(--accent); }
+    .theme-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .theme-bar .toggle-pill {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.8125rem;
+    }
+    .search-wrap-inner {
+      position: relative;
+    }
+    .search-wrap-inner input {
+      width: 100%;
+      padding: 0.5rem 2rem 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-wrap-inner input::placeholder { color: var(--text-muted); }
+    .search-wrap-inner input:focus { border-color: var(--accent); }
+    .search-clear {
+      position: absolute;
+      right: 0.5rem;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 0.2rem;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .search-clear:hover { color: var(--text); }
+    .filter-btn-wrap {
+      position: relative;
+    }
+    .filter-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .filter-btn:hover {
+      border-color: var(--accent-dim);
+      color: var(--text);
+    }
+    .filter-btn.has-active {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--accent);
+    }
+    .filter-btn .badge-count {
+      padding: 0.15rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 999px;
+    }
+    .filter-btn .chevron {
+      display: inline-block;
+      transition: transform 0.2s;
+    }
+    .filter-btn.open .chevron { transform: rotate(180deg); }
+    .filter-popup {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 0.35rem;
+      min-width: 520px;
+      max-width: 90vw;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+      z-index: 100;
+      padding: 1rem 1.25rem;
+    }
+    .filter-popup.open {
+      display: block;
+    }
+    .filter-popup .filter-section {
+      margin-bottom: 1rem;
+    }
+    .filter-popup .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-popup .filter-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+      display: block;
+    }
+    .filter-popup .filter-section .toggle-pill {
+      margin-right: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+    .filter-popup-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .filter-popup-actions .clear-btn {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.25rem 0;
+    }
+    .filter-popup-actions .clear-btn:hover { color: var(--text); }
+    .filter-popup-actions .apply-btn {
+      padding: 0.4rem 1rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .filter-popup-actions .apply-btn:hover { background: var(--accent-dim); }
+    .filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .filter-group .filter-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-right: 0.25rem;
+    }
+    .related-only-banner {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.8125rem;
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .related-only-banner .toggle-pill {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+    }
+    .toggle-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .toggle-pill:hover {
+      border-color: var(--accent-dim);
+      color: var(--text);
+    }
+    .toggle-pill.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .toggle-pill.active:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+    .toggle-pill[data-priority="HIGH"].active { background: var(--high); border-color: var(--high); }
+    .toggle-pill[data-priority="HIGH"].active:hover { filter: brightness(1.1); }
+    .toggle-pill[data-priority="MEDIUM"].active { background: var(--medium); border-color: var(--medium); }
+    .toggle-pill[data-priority="MEDIUM"].active:hover { filter: brightness(1.1); }
+    .toggle-pill[data-priority="LOW"].active { background: var(--low); border-color: var(--low); }
+    .toggle-pill[data-priority="LOW"].active:hover { filter: brightness(1.1); }
+    .board {
+      display: flex;
+      gap: 1rem;
+      padding: 1rem;
+      overflow-x: auto;
+      min-height: calc(100vh - 80px);
+      align-items: flex-start;
+    }
+    .board.view-grid {
+      display: block;
+      overflow: visible;
+    }
+    .board.view-grid .grid-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      padding: 0;
+    }
+    .board.view-grid .grid-container .card {
+      margin-bottom: 0;
+    }
+    .board.view-list {
+      display: block;
+      overflow: visible;
+    }
+    .board.view-list .list-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .board.view-list .list-container .card {
+      margin-bottom: 0;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+      gap: 0.25rem 1rem;
+      align-items: baseline;
+    }
+    .board.view-list .list-container .card .title {
+      grid-column: 1;
+      -webkit-line-clamp: 1;
+    }
+    .board.view-list .list-container .card .description {
+      grid-column: 1;
+      -webkit-line-clamp: 1;
+    }
+    .board.view-list .list-container .card .meta {
+      grid-column: 2;
+      grid-row: 1 / -1;
+      justify-self: end;
+    }
+    .view-toggle .toggle-pill { margin-right: 0.25rem; }
+    .column {
+      flex: 0 0 300px;
+      background: var(--surface);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      min-height: 200px;
+    }
+    .column h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .column h2 .count {
+      background: var(--border);
+      color: var(--text);
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+    }
+    .column-bug-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--bug);
+      flex-shrink: 0;
+      margin-right: 0.25rem;
+    }
+    .card-bug-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--bug);
+      flex-shrink: 0;
+      margin-right: 0.35rem;
+      vertical-align: middle;
+    }
+    .column-bug-empty {
+      padding: 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8125rem;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      margin-top: 0.25rem;
+      background: var(--bg);
+    }
+    .card {
+      position: relative;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .card .card-focus-related {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: 6px;
+      background: var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+      transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+    .card .card-focus-related:hover {
+      opacity: 1;
+      background: var(--accent);
+      color: #fff;
+    }
+    .card .card-focus-related.is-active {
+      background: var(--accent);
+      color: #fff;
+      opacity: 1;
+    }
+    .card .card-focus-related.is-active:hover {
+      background: var(--accent-dim);
+    }
+    .card .card-focus-related svg {
+      width: 12px;
+      height: 12px;
+    }
+    .card:hover {
+      background: var(--border);
+      border-color: var(--accent-dim);
+    }
+    .card:last-child { margin-bottom: 0; }
+    .card .card-header {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+      margin-bottom: 0.2rem;
+    }
+    .card .card-feature-id-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      gap: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+    .card .badge-feature-id {
+      font-size: 0.7rem; font-weight: 600; color: var(--text);
+      background: var(--border);
+      display: inline-block;
+    }
+    .card .copy-feature-btn {
+      flex-shrink: 0;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.65rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .card .card-analysis-icon {
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      color: var(--accent);
+      opacity: 0.9;
+    }
+    .card .card-analysis-icon:hover {
+      opacity: 1;
+    }
+    .card .copy-feature-btn:hover {
+      border-color: var(--accent-dim);
+      color: var(--text);
+    }
+    .card .title {
+      font-weight: 500;
+      font-size: 0.875rem;
+      margin-bottom: 0.35rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.35;
+    }
+    .card .description {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.35;
+    }
+    .card .meta { font-size: 0.75rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+    .badge-value { background: rgba(99,102,241,0.2); color: var(--accent); }
+    .badge-complexity-low { color: var(--low); }
+    .badge-complexity-medium { color: var(--medium); }
+    .badge-complexity-high { color: var(--high); }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.6875rem;
+      font-weight: 500;
+    }
+    .badge-high { background: rgba(239,68,68,0.2); color: var(--high); }
+    .badge-medium { background: rgba(245,158,11,0.2); color: var(--medium); }
+    .badge-low { background: rgba(34,197,94,0.2); color: var(--low); }
+    .badge-bug { background: rgba(244,63,94,0.2); color: var(--bug); }
+    .badge-muted { background: var(--border); color: var(--text-muted); }
+    .card-related { margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+    .card-related .related-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-right: 0.15rem; }
+    .related-arrow { opacity: 0.85; margin-right: 0.15rem; }
+    .badge-related { background: rgba(99,102,241,0.15); color: var(--accent); font-size: 0.625rem; }
+    .badge-related.relation-implements-after { background: rgba(245,158,11,0.2); color: var(--medium); }
+    .badge-related.relation-complements { background: rgba(34,197,94,0.2); color: var(--low); }
+    .modal-related { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .modal-related h4 { margin: 0 0 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
+    .modal-related .related-links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .modal-related .related-link { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.6rem; font-size: 0.8125rem; border-radius: 6px; background: rgba(99,102,241,0.15); color: var(--accent); text-decoration: none; cursor: pointer; border: 1px solid transparent; }
+    .modal-related .related-link:hover { background: rgba(99,102,241,0.25); border-color: var(--accent-dim); }
+    .modal-related .related-link .rel-type { font-size: 0.7rem; color: var(--text-muted); }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      visibility: visible;
+    }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 720px;
+      width: 100%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .modal-header .modal-meta { margin-top: 0.35rem; font-size: 0.8125rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .modal-header .modal-feature-id { font-weight: 600; color: var(--accent); }
+    .modal-header .modal-copy-btn {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .modal-header .modal-copy-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+    .modal-body {
+      padding: 1.25rem;
+      overflow: auto;
+      flex: 1;
+      font-size: 0.875rem;
+    }
+    .modal-body pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .modal-body .rendered-md {
+      color: var(--text);
+    }
+    .modal-body .rendered-md h1, .modal-body .rendered-md h2, .modal-body .rendered-md h3 { margin-top: 1rem; margin-bottom: 0.5rem; font-size: 1em; }
+    .modal-body .rendered-md ul, .modal-body .rendered-md ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+    .modal-body .rendered-md code { background: var(--border); padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.85em; }
+    .modal-body .rendered-md pre { background: var(--bg); padding: 0.75rem; border-radius: 6px; margin: 0.5rem 0; }
+    .modal-body .rendered-md p { margin: 0.5rem 0; }
+    .modal-body .rendered-md strong { font-weight: 600; }
+    .modal-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .modal-tab {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      margin-bottom: -1px;
+    }
+    .modal-tab:hover { color: var(--text); }
+    .modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .modal-panel { display: none; }
+    .modal-panel.active { display: block; }
+    .modal-analysis-loading, .modal-analysis-error { padding: 1rem; color: var(--text-muted); font-size: 0.875rem; }
+    .modal-analysis-error { color: var(--high); }
+    .modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: var(--border);
+      border: none;
+      color: var(--text);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1.25rem;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-close:hover { background: var(--text-muted); }
+    .modal-header { position: relative; padding-right: 3rem; }
+    .loading { padding: 2rem; text-align: center; color: var(--text-muted); }
+    .error { padding: 2rem; text-align: center; color: var(--high); }
+    .feature-count {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-left: auto;
+    }
+    .board { position: relative; }
+    .relationships-overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .relationships-overlay line {
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-opacity: 0.85;
+    }
+    .relationships-overlay line.implements-after { stroke: var(--medium); stroke-opacity: 0.9; }
+    .relationships-overlay line.complements { stroke: var(--low); stroke-opacity: 0.9; }
+    .relationships-overlay .arrowhead { fill: var(--accent); fill-opacity: 0.9; }
+    /* Dashboard */
+    .dashboard-wrap {
+      padding: 1rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .dashboard-wrap h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .dashboard-note {
+      margin: 0 0 1rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+    .dashboard-recent-done {
+      margin: 0 0 1rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .dashboard-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .dashboard-card {
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .dashboard-card .label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+    .dashboard-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .dashboard-card.total .value { color: var(--accent); }
+    .dashboard-card.new .value { color: var(--medium); }
+    .dashboard-card.in-progress .value { color: var(--accent); }
+    .dashboard-card.done .value { color: var(--completed); }
+    .dashboard-card.bugs .value { color: var(--bug); }
+    .dashboard-card.bugs-fixed .value { color: var(--completed); }
+    .dashboard-chart-section {
+      margin-top: 1rem;
+    }
+    .dashboard-chart-section h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .dashboard-chart-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .dashboard-chart-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.8125rem;
+    }
+    .dashboard-chart-row .row-label {
+      min-width: 100px;
+      color: var(--text);
+    }
+    .dashboard-chart-row .row-bar-wrap {
+      flex: 1;
+      height: 20px;
+      background: var(--bg);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .dashboard-chart-row .row-bar {
+      height: 100%;
+      border-radius: 6px;
+      min-width: 2px;
+      transition: width 0.3s ease;
+    }
+    .dashboard-chart-row .row-count {
+      min-width: 2.5rem;
+      text-align: right;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .dashboard-chart-layout {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+    }
+    .dashboard-chart-right {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      flex: 1;
+      min-width: 200px;
+    }
+    .dashboard-time-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: flex-start;
+      width: 100%;
+    }
+    /* Three-column layout: monthly chart | calendar | daily chart.
+       Monthly chart is narrow (few bars), daily chart needs more room (28-31 bars).
+       Calendar is fixed-width in the centre. */
+    .dashboard-time-row.dashboard-time-three-cols {
+      display: grid;
+      grid-template-columns: minmax(120px, auto) 220px 1fr;
+      gap: 1rem;
+      align-items: end;
+    }
+    .dashboard-time-month-col {
+      min-width: 0;
+    }
+    .dashboard-time-daily-col {
+      min-width: 0;
+    }
+    .dashboard-time-calendar-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0.75rem 1.25rem;
+      margin: 0 0.25rem;
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+    }
+    .dashboard-time-calendar-col .dashboard-time-row-dates {
+      margin: 0;
+      width: 100%;
+    }
+    .dashboard-pie-wrap {
+      flex-shrink: 0;
+    }
+    .dashboard-pie-svg {
+      display: block;
+      width: 160px;
+      height: 160px;
+    }
+    .dashboard-pie-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.8125rem;
+      min-width: 120px;
+    }
+    .dashboard-pie-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .dashboard-pie-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .dashboard-pie-legend-label { color: var(--text); }
+    .dashboard-pie-legend-count { color: var(--text-muted); font-weight: 600; margin-left: auto; }
+    .dashboard-time-section {
+      margin-top: 0;
+      padding-top: 0;
+    }
+    .dashboard-time-section h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .dashboard-time-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      min-height: 80px;
+      padding: 0.25rem 0;
+    }
+    .dashboard-time-bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      min-width: 0;
+      max-width: 48px;
+    }
+    .dashboard-time-bar-group {
+      display: flex;
+      gap: 2px;
+      align-items: flex-end;
+      justify-content: center;
+      width: 100%;
+    }
+    .dashboard-time-bar {
+      width: 10px;
+      min-height: 0;
+      border-radius: 3px 3px 0 0;
+      transition: height 0.2s ease;
+      flex-shrink: 0;
+    }
+    .dashboard-time-bar.new { background: var(--medium); }
+    .dashboard-time-bar.completed { background: var(--completed); }
+    .dashboard-time-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+    }
+    .dashboard-time-row-dates {
+      margin-top: 0.15rem;
+      width: 100%;
+    }
+    .dashboard-calendar-grid {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      table-layout: fixed;
+      line-height: 1.4;
+    }
+    .dashboard-calendar-grid th {
+      text-align: center;
+      padding: 0.2rem 0;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .dashboard-calendar-grid td {
+      text-align: center;
+      padding: 0.25rem 0.1rem;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      min-width: 0;
+    }
+    .dashboard-calendar-grid td.calendar-day {
+      cursor: pointer;
+      color: var(--text);
+    }
+    .dashboard-calendar-grid td.calendar-day:hover {
+      background: var(--surface-hover);
+      color: var(--accent);
+    }
+    .dashboard-calendar-grid td.calendar-day.today {
+      color: var(--accent);
+      font-weight: 700;
+      background: rgba(99, 102, 241, 0.12);
+    }
+    .dashboard-calendar-grid td.calendar-day.selected {
+      background: rgba(99, 102, 241, 0.25);
+      color: var(--accent);
+      font-weight: 700;
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    .dashboard-calendar-grid td.calendar-day.selected.today {
+      background: rgba(99, 102, 241, 0.28);
+    }
+    .dashboard-calendar-grid td.calendar-empty {
+      background: var(--bg);
+      border-color: var(--border);
+    }
+    .enterprise-section { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+    .enterprise-section .enterprise-header { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 1rem; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; background: none; border: none; padding: 0; font-family: inherit; }
+    .enterprise-section .enterprise-header:hover { color: var(--accent); }
+    .enterprise-section .enterprise-header .chevron { display: inline-block; transition: transform 0.2s ease; }
+    .enterprise-section.collapsed .enterprise-header .chevron { transform: rotate(-90deg); }
+    .enterprise-section .enterprise-body { overflow: hidden; }
+    .enterprise-section.collapsed .enterprise-body { display: none; }
+    .enterprise-section .enterprise-intro { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1.25rem; }
+    .enterprise-charts-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 0.75rem; }
+    @media (min-width: 900px) { .enterprise-charts-grid { grid-template-columns: repeat(4, 1fr); } }
+    .enterprise-chart { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; min-height: 160px; }
+    .enterprise-chart h3 { margin: 0 0 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .enterprise-chart-svg-wrap { width: 100%; height: 140px; overflow: visible; }
+    .enterprise-chart-svg-wrap svg { display: block; width: 100%; height: 100%; }
+    .enterprise-chart-legend { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.7rem; color: var(--text-muted); }
+    .enterprise-chart-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .enterprise-chart-legend .swatch { width: 8px; height: 8px; border-radius: 2px; }
+    .dashboard-task-grid-wrap {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      width: 100%;
+      clear: both;
+    }
+    .dashboard-task-grid-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .dashboard-task-grid-back {
+      padding: 0.4rem 0.6rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .dashboard-task-grid-back:hover {
+      border-color: var(--accent-dim);
+      color: var(--accent);
+    }
+    .dashboard-task-grid-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .dashboard-task-grid {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .dashboard-task-grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+    }
+    .dashboard-task-grid-table thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--bg);
+      border-bottom: 2px solid var(--border);
+    }
+    .dashboard-task-grid-table th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+      border-right: 1px solid var(--border);
+    }
+    .dashboard-task-grid-table th:last-child {
+      border-right: none;
+    }
+    .dashboard-task-grid-table td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: top;
+    }
+    .dashboard-task-grid-table td:last-child {
+      border-right: none;
+    }
+    .dashboard-task-grid-table tbody tr {
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .dashboard-task-grid-table tbody tr:hover {
+      background: var(--surface-hover);
+    }
+    .dashboard-task-grid-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .dashboard-task-grid-table .col-id {
+      width: 1%;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .dashboard-task-grid-table .col-title {
+      min-width: 200px;
+      max-width: 400px;
+    }
+    .dashboard-task-grid-table .col-status {
+      width: 1%;
+      white-space: nowrap;
+    }
+    .dashboard-task-grid-table .col-priority {
+      width: 1%;
+      white-space: nowrap;
+    }
+    .dashboard-task-grid-table .col-added,
+    .dashboard-task-grid-table .col-completed {
+      width: 1%;
+      white-space: nowrap;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    .card-dates {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    .dashboard-task-grid-table .col-desc {
+      min-width: 120px;
+      max-width: 280px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+    .dashboard-task-grid .card {
+      margin-bottom: 0;
+    }
+    .dashboard-pie-svg path[data-status],
+    .dashboard-pie-legend-item[data-status] {
+      cursor: pointer;
+    }
+    .dashboard-pie-svg path[data-status]:hover,
+    .dashboard-pie-legend-item[data-status]:hover {
+      opacity: 0.9;
+    }
+    .dashboard-pie-legend-item[data-status] {
+      border-radius: 4px;
+      padding: 0.15rem 0.25rem;
+      margin: 0 -0.25rem;
+    }
+    .dashboard-time-bar[data-clickable] {
+      cursor: pointer;
+    }
+    .dashboard-time-bar[data-clickable]:hover {
+      opacity: 0.85;
+    }
+    .dashboard-time-legend {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+    }
+    .dashboard-time-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .dashboard-time-legend .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+    .dashboard-time-legend .swatch.new { background: var(--medium); }
+    .dashboard-time-legend .swatch.completed { background: var(--completed); }
+    .dashboard-daily-section {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+    .dashboard-daily-month-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .dashboard-daily-nav-btn,
+    .dashboard-daily-today-btn {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+    }
+    .dashboard-daily-nav-btn:hover,
+    .dashboard-daily-today-btn:hover {
+      background: var(--accent);
+      color: var(--surface);
+      border-color: var(--accent);
+    }
+    .dashboard-daily-month-label {
+      font-weight: 600;
+      min-width: 5rem;
+      text-align: center;
+    }
+    .dashboard-daily-chart {
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-wrap: nowrap;
+      padding-bottom: 0.5rem;
+    }
+    .dashboard-daily-chart .dashboard-time-bar-wrap {
+      flex: 1;
+      min-width: 14px;
+      max-width: 28px;
+    }
+    .dashboard-daily-chart .dashboard-time-bar {
+      width: 8px;
+    }
+    .dashboard-time-label.today {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    /* Main tabs: Kanban | Dashboard */
+    .main-tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 25;
+    }
+    .main-tab {
+      padding: 0.75rem 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .main-tab:hover { color: var(--text); }
+    .main-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active {
+      display: block;
+    }
+    #panelDashboard .dashboard-wrap {
+      padding: 1.5rem 1.5rem 2rem;
+    }
+  </style>
+</head>
+<body>
+  <script type="application/json" id="features-json">{"features": [{"id": "item-1", "featureId": "FEAT-001", "title": "FEAT-001: AI match candidate selection — architecture analysis (reference)", "status": "PLANNED", "priority": "MEDIUM", "description": "Reference analysis for how to rank “who to chat with” using AI **without** hardcoded gender branches: constrain the pool with user-owned filters, unify profile representation, retrieve with embeddings, optionally re-rank with LLM or learned models, add exploration and logging. Aligns with study gallery fields (`interests`, bio, `looking_for`, `profile_key`). This ticket is the **documentation anchor**; implementation is tracked under FEAT-002.", "fullBody": "### [PLANNED] [MEDIUM] FEAT-001: AI match candidate selection — architecture analysis (reference)\n\n**Feature ID:** `FEAT-001` | **Status:** `[PLANNED]` | **Priority:** `[MEDIUM]` | **Added:** 2026-03-24 | **Last Updated:** 2026-03-24\n**Complexity:** Low | **Business Value:** 4\n\n**Description:** Reference analysis for how to rank “who to chat with” using AI **without** hardcoded gender branches: constrain the pool with user-owned filters, unify profile representation, retrieve with embeddings, optionally re-rank with LLM or learned models, add exploration and logging. Aligns with study gallery fields (`interests`, bio, `looking_for`, `profile_key`). This ticket is the **documentation anchor**; implementation is tracked under FEAT-002.\n\n**Analysis:** [FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md](analysis/FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md)\n\n**Related:** FEAT-002 (Smart discovery feed — implements this design).\n\n---", "businessValue": "", "complexity": "LOW", "complexityScore": 1, "businessValueScore": 4, "relatedFeatures": [{"featureId": "FEAT-002", "relation": "related"}], "lastUpdatedDate": "2026-03-24", "addedDate": "2026-03-24", "analysisPath": "analysis/FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md", "analysisContent": "# AI-driven match candidate selection — analysis\n\n## Problem\n\nThe product has a pool of synthetic (or real) profiles across **genders and personalities**. We want the system to suggest **whom to open a chat with**, in a way that feels like dating apps: driven by **interests, bios, intent, and compatibility**, not by brittle rules such as hardcoded `if user.is_male then show_female`.\n\n## How this works in real products\n\nReal dating surfaces combine:\n\n1. **Hard constraints (user-owned)** — who the user wants to meet (including gender/orientation), age and distance bands, sometimes relationship intent. These are **filters on the candidate set**, not secret model logic.\n2. **Soft ranking** — within that set, order by predicted **interest, reply likelihood, or conversation quality** using text, tags, and behavioral signals.\n3. **Exploration** — occasional candidates outside the tightest cluster to avoid filter bubbles and gather data.\n4. **Feedback loops** — likes, skips, message starts, and replies update future rankings.\n\nThe AI’s job is overwhelmingly **ranking and explanation within constraints**, not **inferring orientation** unless the user has explicitly asked for suggestions that cross those boundaries (a separate, opt-in mode).\n\n## Architectural pattern: constrain, then rank\n\nAvoid encoding gender (or any sensitive axis) as hidden branches inside a single monolithic “chooser.” Instead:\n\n| Stage | Responsibility |\n|--------|------------------|\n| **Candidate generation** | Apply **explicit** filters: user preferences, safety, eligibility. Output a set or shortlist (e.g. top 500 by recency or random stratified sample). |\n| **Representation** | Build a **textual or vector profile** for each candidate from fields you already have: bio, headline, `looking_for`, `interests[]`, location string, optional structured lifestyle/education tags. **Same pipeline for every gender.** |\n| **Scoring / ordering** | Given the **current user context** (their profile text, stated interests, optional chat goals), produce a **score or ordering** over candidates. This can be retrieval (embeddings) + re-ranking (small model or LLM). |\n| **Policy** | Blend **exploit** (top scores) with **explore** (diversity, cold-start, fairness). Log decisions for later learning. |\n\nGender appears only as: (a) a **filter** derived from user settings, or (b) a **feature** in a learned model if the data shows it correlates with outcomes — not as hand-written “business logic” in application code.\n\n## AI techniques (no hardwired gender logic)\n\n### 1. Embedding retrieval (scalable)\n\n- Concatenate normalized fields (bio, interests, headline, looking_for) into a **single document per profile**.\n- Embed with a general-purpose embedding model (same for all users and candidates).\n- Embed the **seeker** profile the same way.\n- **Retrieve** top-K by cosine similarity (optionally after SQL filters for age/location/gender preference).\n\n**Pros:** Fast, cheap at scale, language-agnostic, no prompt injection surface on every row.  \n**Cons:** Weaker on nuanced “vibe” and long constraints (“must love dogs and hate clubbing”).\n\n### 2. LLM re-ranking (high quality, smaller K)\n\n- After retrieval (e.g. K=50), pass **pairs** (seeker summary + candidate summary) to an LLM with a structured output schema: `score`, `confidence`, `one_line_reason`, `flags`.\n- Sort by `score`. Truncate reasons for UI.\n\n**Pros:** Captures fuzzy compatibility and explicit dealbreakers in natural language.  \n**Cons:** Latency, cost, need for guardrails and schema validation.\n\n### 3. Hybrid (recommended for research and prod prototypes)\n\nRetrieve with embeddings → re-rank top 20–50 with LLM or a small cross-encoder.  \nCross-encoders (two-tower or transformer pairwise) trained on **click/message labels** eventually replace the LLM re-ranker for cost.\n\n### 4. Interest graph (optional)\n\n- Build co-occurrence or curated edges between interest labels (“running” near “hiking”).\n- Boost candidates with **adjacent** interests, not only exact overlap.\n\n### 5. Exploration term\n\n- With probability ε, inject a candidate from a **diversity bucket** (different interest cluster, new profile) to measure engagement and reduce homogeneity.\n\n## Data you already align with\n\nFrom the study gallery / persona JSON shape, useful signals include:\n\n- `interests[]`, dating bio/headline, `looking_for`, location, age, normalized gender (for **filtering** only).\n- Stable `profile_key` (or equivalent) for logging which candidate was shown and whether a chat started.\n\n## Safety and ethics\n\n- **Transparency:** Show why a profile was suggested when using LLM reasons (short, non-creepy).\n- **User control:** Orientation/gender preference remains **user-controlled filters**, not model overrides.\n- **Bias:** Monitor ranking outcomes by segment; avoid using protected attributes as ranking features unless justified and compliant with study ethics.\n- **Synthetic data:** If personas are generated, document that recommendations are **research simulations**, not real-user matching.\n\n## Summary\n\nAchieve “AI chooses who to chat with” by **(1) constraining the pool with explicit user preferences and safety rules**, **(2) representing every profile in a unified way**, **(3) ranking with embeddings and/or LLM re-rank**, and **(4) applying a small exploration policy**. Gender is a **filter or learned feature**, not a hand-authored decision tree in app code.\n\n---\n\n**Kanban:** FEAT-001 (reference analysis). **Feature spec:** [FEAT_002_SMART_DISCOVERY_FEED_SPEC.md](FEAT_002_SMART_DISCOVERY_FEED_SPEC.md).\n"}, {"id": "item-2", "featureId": "FEAT-002", "title": "FEAT-002: Smart discovery feed — AI-ranked “who to chat with”", "status": "PLANNED", "priority": "HIGH", "description": "Product feature: **Suggested for you / Smart picks** in the study gallery (or shell app) — ranked profile list with optional match hint, “Why?” transparency, fallback to the normal grid, and logging for research (`profile_key`, rank, score, variant). Phased rollout: (1) embedding retrieval + filters + logs, (2) LLM re-rank + reasons + ε exploration, (3) learned re-ranker if labels exist. Full functional requirements and UX live in the spec below.", "fullBody": "### [PLANNED] [HIGH] FEAT-002: Smart discovery feed — AI-ranked “who to chat with”\n\n**Feature ID:** `FEAT-002` | **Status:** `[PLANNED]` | **Priority:** `[HIGH]` | **Added:** 2026-03-24 | **Last Updated:** 2026-03-24\n**Complexity:** High | **Business Value:** 5\n\n**Description:** Product feature: **Suggested for you / Smart picks** in the study gallery (or shell app) — ranked profile list with optional match hint, “Why?” transparency, fallback to the normal grid, and logging for research (`profile_key`, rank, score, variant). Phased rollout: (1) embedding retrieval + filters + logs, (2) LLM re-rank + reasons + ε exploration, (3) learned re-ranker if labels exist. Full functional requirements and UX live in the spec below.\n\n**Analysis:** [FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md](analysis/FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md)\n\n**Feature spec (detailed):** [FEAT_002_SMART_DISCOVERY_FEED_SPEC.md](analysis/FEAT_002_SMART_DISCOVERY_FEED_SPEC.md)\n\n**Related:** FEAT-001 (architecture analysis — design reference), FEAT-003 (alternative algorithm/product shape — conversation-first, to be compared as treatment vs this baseline).\n\n---", "businessValue": "", "complexity": "HIGH", "complexityScore": 3, "businessValueScore": 5, "relatedFeatures": [{"featureId": "FEAT-001", "relation": "related"}, {"featureId": "FEAT-003", "relation": "related"}], "lastUpdatedDate": "2026-03-24", "addedDate": "2026-03-24", "analysisPath": "analysis/FEAT_001_AI_MATCH_CANDIDATE_SELECTION_ANALYSIS.md", "analysisContent": "# AI-driven match candidate selection — analysis\n\n## Problem\n\nThe product has a pool of synthetic (or real) profiles across **genders and personalities**. We want the system to suggest **whom to open a chat with**, in a way that feels like dating apps: driven by **interests, bios, intent, and compatibility**, not by brittle rules such as hardcoded `if user.is_male then show_female`.\n\n## How this works in real products\n\nReal dating surfaces combine:\n\n1. **Hard constraints (user-owned)** — who the user wants to meet (including gender/orientation), age and distance bands, sometimes relationship intent. These are **filters on the candidate set**, not secret model logic.\n2. **Soft ranking** — within that set, order by predicted **interest, reply likelihood, or conversation quality** using text, tags, and behavioral signals.\n3. **Exploration** — occasional candidates outside the tightest cluster to avoid filter bubbles and gather data.\n4. **Feedback loops** — likes, skips, message starts, and replies update future rankings.\n\nThe AI’s job is overwhelmingly **ranking and explanation within constraints**, not **inferring orientation** unless the user has explicitly asked for suggestions that cross those boundaries (a separate, opt-in mode).\n\n## Architectural pattern: constrain, then rank\n\nAvoid encoding gender (or any sensitive axis) as hidden branches inside a single monolithic “chooser.” Instead:\n\n| Stage | Responsibility |\n|--------|------------------|\n| **Candidate generation** | Apply **explicit** filters: user preferences, safety, eligibility. Output a set or shortlist (e.g. top 500 by recency or random stratified sample). |\n| **Representation** | Build a **textual or vector profile** for each candidate from fields you already have: bio, headline, `looking_for`, `interests[]`, location string, optional structured lifestyle/education tags. **Same pipeline for every gender.** |\n| **Scoring / ordering** | Given the **current user context** (their profile text, stated interests, optional chat goals), produce a **score or ordering** over candidates. This can be retrieval (embeddings) + re-ranking (small model or LLM). |\n| **Policy** | Blend **exploit** (top scores) with **explore** (diversity, cold-start, fairness). Log decisions for later learning. |\n\nGender appears only as: (a) a **filter** derived from user settings, or (b) a **feature** in a learned model if the data shows it correlates with outcomes — not as hand-written “business logic” in application code.\n\n## AI techniques (no hardwired gender logic)\n\n### 1. Embedding retrieval (scalable)\n\n- Concatenate normalized fields (bio, interests, headline, looking_for) into a **single document per profile**.\n- Embed with a general-purpose embedding model (same for all users and candidates).\n- Embed the **seeker** profile the same way.\n- **Retrieve** top-K by cosine similarity (optionally after SQL filters for age/location/gender preference).\n\n**Pros:** Fast, cheap at scale, language-agnostic, no prompt injection surface on every row.  \n**Cons:** Weaker on nuanced “vibe” and long constraints (“must love dogs and hate clubbing”).\n\n### 2. LLM re-ranking (high quality, smaller K)\n\n- After retrieval (e.g. K=50), pass **pairs** (seeker summary + candidate summary) to an LLM with a structured output schema: `score`, `confidence`, `one_line_reason`, `flags`.\n- Sort by `score`. Truncate reasons for UI.\n\n**Pros:** Captures fuzzy compatibility and explicit dealbreakers in natural language.  \n**Cons:** Latency, cost, need for guardrails and schema validation.\n\n### 3. Hybrid (recommended for research and prod prototypes)\n\nRetrieve with embeddings → re-rank top 20–50 with LLM or a small cross-encoder.  \nCross-encoders (two-tower or transformer pairwise) trained on **click/message labels** eventually replace the LLM re-ranker for cost.\n\n### 4. Interest graph (optional)\n\n- Build co-occurrence or curated edges between interest labels (“running” near “hiking”).\n- Boost candidates with **adjacent** interests, not only exact overlap.\n\n### 5. Exploration term\n\n- With probability ε, inject a candidate from a **diversity bucket** (different interest cluster, new profile) to measure engagement and reduce homogeneity.\n\n## Data you already align with\n\nFrom the study gallery / persona JSON shape, useful signals include:\n\n- `interests[]`, dating bio/headline, `looking_for`, location, age, normalized gender (for **filtering** only).\n- Stable `profile_key` (or equivalent) for logging which candidate was shown and whether a chat started.\n\n## Safety and ethics\n\n- **Transparency:** Show why a profile was suggested when using LLM reasons (short, non-creepy).\n- **User control:** Orientation/gender preference remains **user-controlled filters**, not model overrides.\n- **Bias:** Monitor ranking outcomes by segment; avoid using protected attributes as ranking features unless justified and compliant with study ethics.\n- **Synthetic data:** If personas are generated, document that recommendations are **research simulations**, not real-user matching.\n\n## Summary\n\nAchieve “AI chooses who to chat with” by **(1) constraining the pool with explicit user preferences and safety rules**, **(2) representing every profile in a unified way**, **(3) ranking with embeddings and/or LLM re-rank**, and **(4) applying a small exploration policy**. Gender is a **filter or learned feature**, not a hand-authored decision tree in app code.\n\n---\n\n**Kanban:** FEAT-001 (reference analysis). **Feature spec:** [FEAT_002_SMART_DISCOVERY_FEED_SPEC.md](FEAT_002_SMART_DISCOVERY_FEED_SPEC.md).\n"}, {"id": "item-3", "featureId": "FEAT-003", "title": "FEAT-003: Conversation-First Dating & CRUSH algorithm — new angle for dating apps", "status": "IDEA", "priority": "HIGH", "description": "Deliberate break from the conventional \"photo-first feed + ELO/collab-filter ranking\" pattern (and from FEAT-002's retrieval + LLM re-rank). Three structural inversions: **(1) disclosure order** — 12-min AI interview produces a **Compatibility Fingerprint** (8 dims) that becomes the primary matching artifact; photos are progressive and bilateral, earned by conversational compatibility. **(2) supply** — one curated candidate per day, not an infinite feed. **(3) objective** — optimize for **real-w...", "fullBody": "### [IDEA] [HIGH] FEAT-003: Conversation-First Dating & CRUSH algorithm — new angle for dating apps\n\n**Feature ID:** `FEAT-003` | **Status:** `[IDEA]` | **Priority:** `[HIGH]` | **Added:** 2026-04-20 | **Last Updated:** 2026-04-20\n**Complexity:** High | **Business Value:** 5\n\n**Description:** Deliberate break from the conventional \"photo-first feed + ELO/collab-filter ranking\" pattern (and from FEAT-002's retrieval + LLM re-rank). Three structural inversions: **(1) disclosure order** — 12-min AI interview produces a **Compatibility Fingerprint** (8 dims) that becomes the primary matching artifact; photos are progressive and bilateral, earned by conversational compatibility. **(2) supply** — one curated candidate per day, not an infinite feed. **(3) objective** — optimize for **real-world meetup outcomes** (did we go, did it go well, did we see each other again) via a structured post-meetup debrief loop, not engagement metrics. Two new mechanisms: **AI-twin shadow chat** (two-sided consent; both users' digital twins run a simulated 10-turn conversation and both humans read the transcript + a candid AI read-out before opening a real channel) and a **PersonalOutcomeModel_S** (per-user Bayesian model trained on that user's own debriefs — anti-ELO: \"what works for *you*\", not \"who's globally popular\"). Core algorithm **CRUSH** (Compatibility via Real-outcome, Unified-style Scoring with Humans-in-the-loop) blends 7 personalized terms: fingerprint compatibility, value alignment, intent overlap, personal outcome model, twin shadow score, novelty penalty against repeated-failure archetypes, supply fairness, and decaying exploration. All per-user coefficients learned via Bayesian updating; hard constraints (gender/orientation/age/dealbreakers) remain explicit SQL-level user-owned filters (same discipline as FEAT-001 — no gender-branched logic in the model). Study-friendly: can be evaluated against FEAT-002 as baseline using the existing synthetic persona set plus a synthetic outcome simulator.\n\n**Plan:** [FEAT_003_CONVERSATION_FIRST_DATING_PLAN.md](plan/FEAT_003_CONVERSATION_FIRST_DATING_PLAN.md)\n\n**Related:** FEAT-001 (architecture analysis — shared discipline: no gender-branched logic, constraint-then-rank), FEAT-002 (conventional smart-discovery feed — intended **baseline** for A/B evaluation against this as **treatment**).\n\n---", "businessValue": "", "complexity": "HIGH", "complexityScore": 3, "businessValueScore": 5, "relatedFeatures": [{"featureId": "FEAT-001", "relation": "related"}, {"featureId": "FEAT-002", "relation": "related"}], "lastUpdatedDate": "2026-04-20", "addedDate": "2026-04-20"}]}</script>
+  <script>
+    (function() {
+      try {
+        var el = document.getElementById('features-json');
+        window.FEATURES_JSON = el && el.textContent ? JSON.parse(el.textContent) : null;
+      } catch (e) {
+        window.FEATURES_JSON = null;
+      }
+    })();
+  </script>
+  <nav class="main-tabs" role="tablist" aria-label="Main view">
+    <button type="button" class="main-tab active" role="tab" id="tabKanban" aria-selected="true" aria-controls="panelKanban" data-tab="kanban">Kanban</button>
+    <button type="button" class="main-tab" role="tab" id="tabDashboard" aria-selected="false" aria-controls="panelDashboard" data-tab="dashboard">Dashboard</button>
+  </nav>
+  <div id="panelKanban" class="tab-panel active" role="tabpanel" aria-labelledby="tabKanban">
+  <div class="filters" id="filters">
+    <div class="search-wrap">
+      <div class="search-wrap-inner">
+        <input type="text" id="searchInput" placeholder="Search by title, FEAT-XXX, description…" aria-label="Search features">
+        <button type="button" class="search-clear" id="searchClear" aria-label="Clear search" title="Clear search" style="display: none;">×</button>
+      </div>
+    </div>
+    <div class="filter-btn-wrap" id="filterBtnWrap">
+      <button type="button" class="filter-btn" id="filterBtn" aria-expanded="false" aria-haspopup="true">
+        <span>Filters</span>
+        <span class="badge-count" id="filterBadge" style="display: none;">0</span>
+        <span class="chevron" aria-hidden="true">▼</span>
+      </button>
+      <div class="filter-popup" id="filterPopup" role="dialog" aria-label="Filter options">
+        <div class="filter-section">
+          <span class="filter-label">Status</span>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="IDEA">Idea</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="PLANNED">Planned</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="IN-PROGRESS">In progress</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="DONE">Done</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="CANCELLED">Cancelled</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="BUG">Bug</button>
+          <button type="button" class="toggle-pill active" data-filter="status" data-value="REMOVED">Removed</button>
+        </div>
+        <div class="filter-section">
+          <span class="filter-label">Priority</span>
+          <button type="button" class="toggle-pill active" data-filter="priority" data-value="HIGH" data-priority="HIGH">High</button>
+          <button type="button" class="toggle-pill active" data-filter="priority" data-value="MEDIUM" data-priority="MEDIUM">Medium</button>
+          <button type="button" class="toggle-pill active" data-filter="priority" data-value="LOW" data-priority="LOW">Low</button>
+        </div>
+        <div class="filter-section">
+          <span class="filter-label">Complexity</span>
+          <button type="button" class="toggle-pill active" data-filter="complexity" data-value="LOW">Low</button>
+          <button type="button" class="toggle-pill active" data-filter="complexity" data-value="MEDIUM">Medium</button>
+          <button type="button" class="toggle-pill active" data-filter="complexity" data-value="HIGH">High</button>
+        </div>
+        <div class="filter-section">
+          <span class="filter-label">Business value</span>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="1">1</button>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="2">2</button>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="3">3</button>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="4">4</button>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="5">5</button>
+          <button type="button" class="toggle-pill active" data-filter="businessValue" data-value="6+">6+</button>
+        </div>
+        <div class="filter-section">
+          <span class="filter-label">View</span>
+          <button type="button" class="toggle-pill active" data-view="kanban">Kanban</button>
+          <button type="button" class="toggle-pill" data-view="grid">Grid</button>
+          <button type="button" class="toggle-pill" data-view="list">List</button>
+        </div>
+        <div class="filter-popup-actions">
+          <button type="button" class="clear-btn" id="filterClearAll">Clear all</button>
+          <button type="button" class="apply-btn" id="filterApply">Apply</button>
+        </div>
+      </div>
+    </div>
+    <div class="order-wrap">
+      <label for="orderSelect">Order</label>
+      <select id="orderSelect" aria-label="Order cards by">
+        <option value="value-desc">Value (high first)</option>
+        <option value="value-asc">Value (low first)</option>
+        <option value="priority-desc">Priority (high first)</option>
+        <option value="priority-asc">Priority (low first)</option>
+        <option value="complexity-desc">Complexity (high first)</option>
+        <option value="complexity-asc">Complexity (low first)</option>
+        <option value="title-asc">Title (A–Z)</option>
+        <option value="title-desc">Title (Z–A)</option>
+        <option value="featureId-asc">Feature ID</option>
+        <option value="status">Status (column order)</option>
+      </select>
+    </div>
+    <div class="theme-bar">
+      <button type="button" class="toggle-pill active" data-theme="dark" id="themeDark" aria-pressed="true">Dark</button>
+      <button type="button" class="toggle-pill" data-theme="light" id="themeLight" aria-pressed="false">Light</button>
+    </div>
+    <button type="button" class="toggle-pill" id="relationshipsToggle" data-relationships="off" aria-pressed="false" title="Draw lines between cards that have a Related badge (e.g. DevOps → FEAT-034). Same data as the badges; toggle on to see the connection.">Relationships</button>
+    <div class="filter-group feature-count" id="featureCount" aria-live="polite">—</div>
+    <div class="related-only-banner" id="relatedOnlyBanner" style="display: none;">
+      <span id="relatedOnlyText">Showing only related cards</span>
+      <button type="button" class="toggle-pill" id="relatedOnlyClear" style="margin-left: 0.5rem;" title="Show all cards">Clear</button>
+    </div>
+  </div>
+  <div class="board" id="board" data-view="kanban">
+    <div class="loading" id="loading">Loading features…</div>
+  </div>
+  </div>
+  <div id="panelDashboard" class="tab-panel" role="tabpanel" aria-labelledby="tabDashboard">
+    <div class="dashboard-wrap" style="border-bottom: none;">
+      <p class="dashboard-build-time" style="margin:0 0 0.5rem 0;font-size:0.75rem;color:var(--text-muted);">Data built: 2026-04-20 21:34 UTC</p>
+      <div class="dashboard-cards" id="dashboardCards"></div>
+      <div class="dashboard-chart-section">
+        <h3>By status & across time</h3>
+        <div class="dashboard-chart-layout">
+          <div class="dashboard-pie-wrap" id="dashboardPieWrap">
+            <svg class="dashboard-pie-svg" id="dashboardPieSvg" viewBox="0 0 100 100" aria-hidden="true"></svg>
+          </div>
+          <div class="dashboard-pie-legend" id="dashboardPieLegend"></div>
+          <div class="dashboard-chart-right">
+            <div class="dashboard-time-row dashboard-time-three-cols">
+              <div class="dashboard-time-month-col">
+                <div class="dashboard-time-section" id="dashboardTimeSection">
+                  <h3>New/updated vs completed (by month)</h3>
+                  <div class="dashboard-time-legend">
+                    <span><span class="swatch new"></span> New/updated</span>
+                    <span><span class="swatch completed"></span> Completed</span>
+                  </div>
+                  <div class="dashboard-time-chart" id="dashboardTimeChart"></div>
+                </div>
+              </div>
+              <div class="dashboard-time-calendar-col">
+                <div class="dashboard-time-row-dates" id="dashboardTimeRowDates"></div>
+              </div>
+              <div class="dashboard-time-daily-col">
+                <div class="dashboard-time-section dashboard-daily-section" id="dashboardDailySection">
+                  <h3>New/updated vs completed (daily)</h3>
+                  <div class="dashboard-daily-month-nav" id="dashboardDailyMonthNav" aria-label="Select month">
+                    <button type="button" class="dashboard-daily-nav-btn" id="dashboardDailyPrev" aria-label="Previous month">←</button>
+                    <span class="dashboard-daily-month-label" id="dashboardDailyMonthLabel">—</span>
+                    <button type="button" class="dashboard-daily-nav-btn" id="dashboardDailyNext" aria-label="Next month">→</button>
+                    <button type="button" class="dashboard-daily-today-btn" id="dashboardDailyToday" aria-label="Go to current month">Today</button>
+                  </div>
+                  <div class="dashboard-time-legend">
+                    <span><span class="swatch new"></span> New/updated</span>
+                    <span><span class="swatch completed"></span> Completed</span>
+                  </div>
+                  <div class="dashboard-time-chart dashboard-daily-chart" id="dashboardDailyChart"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="enterprise-section dashboard-wrap collapsed" id="enterpriseSection" style="border-bottom: none;">
+        <button type="button" class="enterprise-header" id="enterpriseHeader" aria-expanded="false" aria-controls="enterpriseBody">
+          <span class="chevron" aria-hidden="true">▼</span>
+          <span>Enterprise metrics</span>
+        </button>
+        <div class="enterprise-body" id="enterpriseBody">
+        <p class="enterprise-intro">Cumulative Flow, Throughput, Burnup, Backlog (remaining).</p>
+        <div class="enterprise-charts-grid">
+          <div class="enterprise-chart"><h3>Cumulative Flow</h3><div class="enterprise-chart-svg-wrap"><svg id="enterpriseCfdSvg" viewBox="0 0 300 140"></svg></div><div class="enterprise-chart-legend" id="enterpriseCfdLegend"></div></div>
+          <div class="enterprise-chart"><h3>Throughput</h3><div class="enterprise-chart-svg-wrap"><svg id="enterpriseCycleSvg" viewBox="0 0 300 140"></svg></div><div class="enterprise-chart-legend" id="enterpriseCycleLegend"></div></div>
+          <div class="enterprise-chart"><h3>Burnup</h3><div class="enterprise-chart-svg-wrap"><svg id="enterpriseBurnupSvg" viewBox="0 0 300 140"></svg></div><div class="enterprise-chart-legend" id="enterpriseBurnupLegend"></div></div>
+          <div class="enterprise-chart"><h3>Backlog (remaining)</h3><div class="enterprise-chart-svg-wrap"><svg id="enterpriseBacklogSvg" viewBox="0 0 300 140"></svg></div><div class="enterprise-chart-legend" id="enterpriseBacklogLegend"></div></div>
+        </div>
+        </div>
+      </div>
+      <div id="dashboardTaskGridWrap" class="dashboard-task-grid-wrap" style="display: none;" aria-hidden="true">
+        <div class="dashboard-task-grid-header">
+          <button type="button" class="dashboard-task-grid-back" id="dashboardTaskGridBack" aria-label="Back to charts">&larr; Back</button>
+          <h3 id="dashboardTaskGridTitle" class="dashboard-task-grid-title">Tasks</h3>
+        </div>
+        <div id="dashboardTaskGrid" class="dashboard-task-grid"></div>
+      </div>
+      <div class="enterprise-section dashboard-wrap collapsed" id="debugSection" style="border-bottom: none;">
+        <button type="button" class="enterprise-header" id="debugHeader" aria-expanded="false" aria-controls="debugBody">
+          <span class="chevron" aria-hidden="true">▼</span>
+          <span>Debug</span>
+        </button>
+        <div class="enterprise-body" id="debugBody">
+          <p id="dashboardRecentDone" class="dashboard-recent-done" style="margin:0.5rem 0 0.25rem 0;font-size:0.9rem;color:var(--text);"></p>
+          <p id="dashboardCompletedByDay" class="dashboard-completed-by-day" style="margin:0 0 0;font-size:0.85rem;color:var(--text-muted);"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <button type="button" class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+        <h3 id="modalTitle">—</h3>
+        <div class="modal-meta" id="modalMeta"></div>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+  <script>
+    (function() {
+      const COLUMNS = ['IDEA', 'BUG', 'PLANNED', 'IN-PROGRESS', 'DONE', 'CANCELLED', 'REMOVED'];
+      const COLUMN_LABELS = {
+        'IDEA': '💡 Idea',
+        'PLANNED': '📋 Planned',
+        'IN-PROGRESS': '🔄 In progress',
+        'DONE': '✅ Done',
+        'CANCELLED': '❌ Cancelled',
+        'BUG': '🐛 Bug',
+        'REMOVED': '📦 Removed'
+      };
+
+      function getData() {
+        // Prefer embedded JSON (baked in by parse_features_md.py) so bugs and all features always show
+        var embedded = (window.FEATURES_JSON && window.FEATURES_JSON.features && window.FEATURES_JSON.features.length) ? window.FEATURES_JSON : null;
+        if (embedded && embedded.features.length > 0) {
+          return Promise.resolve({ features: embedded.features });
+        }
+        return fetch('features.json')
+          .then(function(r) { return r.json(); })
+          .catch(function() {
+            return (window.FEATURES_JSON && window.FEATURES_JSON.features) ? window.FEATURES_JSON : { features: [] };
+          })
+          .then(function(data) {
+            if (!data || !data.features || data.features.length === 0) {
+              data = (window.FEATURES_JSON && window.FEATURES_JSON.features) ? window.FEATURES_JSON : { features: [] };
+            }
+            return data;
+          });
+      }
+
+      function priorityClass(p) {
+        if (!p) return '';
+        const u = (p || '').toUpperCase();
+        if (u === 'HIGH') return 'badge-high';
+        if (u === 'MEDIUM') return 'badge-medium';
+        if (u === 'LOW') return 'badge-low';
+        return '';
+      }
+
+      const TITLE_MAX = 85;
+      const DESC_MAX = 80;
+      function truncate(s, max) {
+        if (!s || s.length <= max) return s || '';
+        return s.slice(0, max).trim() + '\u2026';
+      }
+      function complexityScoreClass(score) {
+        if (score == null) return '';
+        if (score <= 1) return 'badge-complexity-low';
+        if (score >= 3) return 'badge-complexity-high';
+        return 'badge-complexity-medium';
+      }
+      function renderCard(f) {
+        const isBug = f.status === 'BUG' || (f.featureId || '').toString().toUpperCase().indexOf('BUG-') === 0;
+        const priorityBadge = f.priority && f.priority !== 'MEDIUM'
+          ? `<span class="badge ${priorityClass(f.priority)}">${f.priority}</span>`
+          : '';
+        const bugBadge = isBug ? '<span class="badge badge-bug">Bug</span>' : '';
+        const cardHeaderLabel = isBug ? '<span class="card-bug-dot" title="Bug"></span> Bug' : 'Feature';
+        const cScore = f.complexityScore != null ? Number(f.complexityScore) : null;
+        const vScore = f.businessValueScore != null ? Number(f.businessValueScore) : null;
+        const hasC = cScore != null && cScore >= 1 && cScore <= 3;
+        const hasV = vScore != null && vScore >= 1;
+        const complexityBadge = hasC
+          ? `<span class="badge ${complexityScoreClass(cScore)}" title="Complexity: ${cScore} (1=Low, 2=Med, 3=High)">C: ${cScore}</span>`
+          : `<span class="badge badge-muted" title="Complexity (add **Complexity:** Low|Medium|High in feature)">C: —</span>`;
+        const valueTooltip = (f.businessValue && f.businessValue.trim()) ? escapeHtml(f.businessValue.trim()) : 'Business value score 1–5 (add **Business Value:** 1-5 in feature)';
+        const valueBadge = hasV
+          ? `<span class="badge badge-value" title="${valueTooltip}">V: ${vScore}</span>`
+          : `<span class="badge badge-muted" title="Business value (add **Business Value:** 1-5 in feature)">V: —</span>`;
+        const title = truncate(f.title, TITLE_MAX);
+        const desc = (f.description && f.description.trim()) ? truncate(f.description.trim(), DESC_MAX) : '';
+        const related = (f.relatedFeatures && Array.isArray(f.relatedFeatures) && f.relatedFeatures.length) ? f.relatedFeatures : [];
+        const hasAnalysis = !!(f.analysisPath || f.analysisContent);
+        const analysisIcon = hasAnalysis ? `<span class="card-analysis-icon" title="Has analysis document"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>` : '';
+        const relatedHtml = related.length ? `
+            <div class="card-related">
+              <span class="related-label">Related</span>
+              ${related.map(r => {
+                const relClass = (r.relation === 'implements-after') ? 'badge-related relation-implements-after' : (r.relation === 'complements') ? 'badge-related relation-complements' : 'badge-related';
+                return `<span class="badge ${relClass}" title="${escapeHtml(r.relation)}"><span class="related-arrow">→</span> ${escapeHtml(r.featureId)}</span>`;
+              }).join('')}
+            </div>` : '';
+        const focusRelatedTitle = related.length ? 'Show only this card and its related cards' : 'Show only this card';
+        const focusRelatedIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+        const addedDate = (f.addedDate || '').toString().trim().substring(0, 10);
+        const completedDate = (f.completedDate || '').toString().trim().substring(0, 10);
+        const datesLine = (addedDate || completedDate) ? '<div class="card-dates">' + (addedDate ? 'Added: ' + escapeHtml(addedDate) : '') + (addedDate && completedDate ? ' · ' : '') + (completedDate ? 'Completed: ' + escapeHtml(completedDate) : '') + '</div>' : '';
+        return `
+          <div class="card" data-id="${f.id}" data-feature-id="${escapeHtml(f.featureId || '')}" role="button" tabindex="0" title="${escapeHtml(truncate(f.title, 120))}">
+            <button type="button" class="card-focus-related" title="${focusRelatedTitle}" aria-label="${focusRelatedTitle}" data-feature-id="${escapeHtml(f.featureId || '')}">${focusRelatedIcon}</button>
+            <div class="card-header">${cardHeaderLabel}</div>
+            <div class="card-feature-id-row">
+              ${analysisIcon}
+              <span class="badge badge-feature-id">${escapeHtml(f.featureId)}</span>
+              <button type="button" class="copy-feature-btn" title="Copy feature ID">Copy</button>
+            </div>
+            <div class="title">${escapeHtml(title)}</div>
+            ${desc ? `<div class="description">${escapeHtml(desc)}</div>` : ''}
+            <div class="meta">
+              ${priorityBadge}
+              ${bugBadge}
+              ${complexityBadge}
+              ${valueBadge}
+            </div>
+            ${datesLine}
+            ${relatedHtml}
+          </div>`;
+      }
+
+      function escapeHtml(s) {
+        if (!s) return '';
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      function renderMarkdown(md) {
+        if (typeof marked !== 'undefined') {
+          marked.setOptions({ gfm: true, breaks: true });
+          return marked.parse(md || '');
+        }
+        return '<pre>' + escapeHtml(md) + '</pre>';
+      }
+
+      function openModal(feature) {
+        const overlay = document.getElementById('modalOverlay');
+        const titleEl = document.getElementById('modalTitle');
+        const metaEl = document.getElementById('modalMeta');
+        const bodyEl = document.getElementById('modalBody');
+        const allFeatures = (window.FEATURES_JSON && window.FEATURES_JSON.features) ? window.FEATURES_JSON.features : [];
+        titleEl.textContent = feature.title;
+        const addedStr = (feature.addedDate || '').toString().trim().substring(0, 10);
+        const completedStr = (feature.completedDate || '').toString().trim().substring(0, 10);
+        const datesPart = [addedStr ? 'Added: ' + addedStr : '', completedStr ? 'Completed: ' + completedStr : ''].filter(Boolean).join(' · ');
+        metaEl.innerHTML = `<span class="modal-feature-id">${escapeHtml(feature.featureId)}</span><button type="button" class="modal-copy-btn" data-feature-id="${escapeHtml(feature.featureId)}" title="Copy feature ID">Copy ID</button> · <span class="badge ${priorityClass(feature.priority)}">${feature.priority}</span> · ${feature.status}${datesPart ? ' · ' + datesPart : ''}`;
+        // Wire up copy button in modal
+        const modalCopyBtn = metaEl.querySelector('.modal-copy-btn');
+        if (modalCopyBtn) {
+          modalCopyBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const fid = this.getAttribute('data-feature-id');
+            if (!fid) return;
+            navigator.clipboard.writeText(fid).then(() => {
+              const orig = this.textContent;
+              this.textContent = 'Copied!';
+              setTimeout(() => { this.textContent = orig; }, 1500);
+            }).catch(() => {});
+          });
+        }
+        let bodyContent = '';
+        const related = (feature.relatedFeatures && Array.isArray(feature.relatedFeatures) && feature.relatedFeatures.length) ? feature.relatedFeatures : [];
+        const hasAnalysis = !!(feature.analysisPath && feature.analysisPath.trim());
+
+        if (hasAnalysis) {
+          bodyContent += '<div class="modal-tabs" role="tablist">';
+          bodyContent += '<button type="button" class="modal-tab active" role="tab" aria-selected="true" data-panel="feature">Feature</button>';
+          bodyContent += '<button type="button" class="modal-tab" role="tab" aria-selected="false" data-panel="analysis">Analysis</button>';
+          bodyContent += '</div>';
+        }
+
+        bodyContent += '<div id="modalPanelFeature" class="modal-panel active" role="tabpanel">';
+        if (related.length) {
+          bodyContent += '<div class="modal-related"><h4>Related features</h4><div class="related-links">';
+          related.forEach(r => {
+            const target = allFeatures.find(ff => (ff.featureId || '').toUpperCase() === (r.featureId || '').toUpperCase());
+            if (target) {
+              bodyContent += `<a class="related-link" href="#" data-feature-id="${escapeHtml(target.id)}" data-feature-index="${allFeatures.indexOf(target)}" title="${escapeHtml(r.relation)}"><span class="related-arrow">→</span> ${escapeHtml(r.featureId)} <span class="rel-type">(${escapeHtml(r.relation)})</span></a>`;
+            } else {
+              bodyContent += `<span class="related-link" style="cursor:default;opacity:0.8" title="${escapeHtml(r.relation)}"><span class="related-arrow">→</span> ${escapeHtml(r.featureId)} <span class="rel-type">(${escapeHtml(r.relation)})</span></span>`;
+            }
+          });
+          bodyContent += '</div></div>';
+        }
+        bodyContent += '<div class="rendered-md">' + renderMarkdown(feature.fullBody) + '</div>';
+        bodyContent += '</div>';
+
+        if (hasAnalysis) {
+          bodyContent += '<div id="modalPanelAnalysis" class="modal-panel" role="tabpanel">';
+          bodyContent += '<div id="modalAnalysisContent" class="modal-analysis-loading">Loading analysis…</div>';
+          bodyContent += '</div>';
+        }
+
+        bodyEl.innerHTML = bodyContent;
+        bodyEl.querySelectorAll('.related-link[data-feature-index]').forEach(link => {
+          link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const idx = parseInt(this.getAttribute('data-feature-index'), 10);
+            if (!isNaN(idx) && allFeatures[idx]) {
+              openModal(allFeatures[idx]);
+            }
+          });
+        });
+
+        if (hasAnalysis) {
+          bodyEl.querySelectorAll('.modal-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+              const panelId = this.getAttribute('data-panel');
+              bodyEl.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+              bodyEl.querySelectorAll('.modal-tab').forEach(t => t.setAttribute('aria-selected', 'false'));
+              this.classList.add('active');
+              this.setAttribute('aria-selected', 'true');
+              bodyEl.querySelectorAll('.modal-panel').forEach(p => p.classList.remove('active'));
+              const panel = panelId === 'analysis' ? document.getElementById('modalPanelAnalysis') : document.getElementById('modalPanelFeature');
+              if (panel) panel.classList.add('active');
+              if (panelId === 'analysis') loadAnalysisContent(feature);
+            });
+          });
+        }
+
+        overlay.classList.add('open');
+        document.body.style.overflow = 'hidden';
+      }
+
+      function loadAnalysisContent(feature) {
+        const contentEl = document.getElementById('modalAnalysisContent');
+        if (!contentEl || !feature) return;
+        if (contentEl.dataset.loaded === '1') return;
+        if (feature.analysisContent) {
+          contentEl.dataset.loaded = '1';
+          contentEl.innerHTML = '<div class="rendered-md">' + (typeof marked !== 'undefined' ? marked.parse(feature.analysisContent || '') : escapeHtml(feature.analysisContent)) + '</div>';
+          return;
+        }
+        const analysisPath = feature.analysisPath;
+        if (!analysisPath) return;
+        contentEl.innerHTML = '<span class="modal-analysis-loading">Loading analysis…</span>';
+        const url = '../' + analysisPath.replace(/^\//, '');
+        fetch(url)
+          .then(function(r) {
+            if (!r.ok) throw new Error(r.status === 404 ? 'Analysis document not found.' : 'Failed to load analysis.');
+            return r.text();
+          })
+          .then(function(md) {
+            contentEl.dataset.loaded = '1';
+            contentEl.innerHTML = '<div class="rendered-md">' + (typeof marked !== 'undefined' ? marked.parse(md || '') : escapeHtml(md)) + '</div>';
+          })
+          .catch(function(err) {
+            contentEl.dataset.loaded = '1';
+            contentEl.innerHTML = '<div class="modal-analysis-error">' + escapeHtml(err.message || 'Failed to load analysis.') + '</div>';
+          });
+      }
+
+      function closeModal() {
+        document.getElementById('modalOverlay').classList.remove('open');
+        document.body.style.overflow = '';
+      }
+
+      let relatedOnlySet = null;
+      let relatedOnlySourceFeatureId = null;
+
+      function getFilterState() {
+        const statusChecked = Array.from(document.querySelectorAll('.toggle-pill[data-filter="status"].active')).map(el => el.dataset.value);
+        const priorityChecked = Array.from(document.querySelectorAll('.toggle-pill[data-filter="priority"].active')).map(el => el.dataset.value);
+        const complexityChecked = Array.from(document.querySelectorAll('.toggle-pill[data-filter="complexity"].active')).map(el => el.dataset.value);
+        const businessValueChecked = Array.from(document.querySelectorAll('.toggle-pill[data-filter="businessValue"].active')).map(el => el.dataset.value);
+        const searchQuery = (document.getElementById('searchInput') && document.getElementById('searchInput').value || '').trim().toLowerCase();
+        return { status: statusChecked, priority: priorityChecked, complexity: complexityChecked, businessValue: businessValueChecked, searchQuery };
+      }
+
+      function getRelatedOnlySet(feature, all) {
+        const set = new Set();
+        const fid = (feature.featureId || '').toUpperCase();
+        if (!fid) return set;
+        set.add(fid);
+        (feature.relatedFeatures || []).forEach(r => {
+          if (r.featureId) set.add((r.featureId || '').toUpperCase());
+        });
+        (all || []).forEach(f => {
+          const rel = (f.relatedFeatures || []).some(r => (r.featureId || '').toUpperCase() === fid);
+          if (rel && f.featureId) set.add((f.featureId || '').toUpperCase());
+        });
+        return set;
+      }
+
+      function setRelatedOnly(set, sourceFeatureId) {
+        relatedOnlySet = set;
+        relatedOnlySourceFeatureId = sourceFeatureId || null;
+        const banner = document.getElementById('relatedOnlyBanner');
+        const textEl = document.getElementById('relatedOnlyText');
+        if (banner && textEl) {
+          if (set && set.size) {
+            banner.style.display = '';
+            textEl.textContent = 'Showing only related cards (' + set.size + ') — click link again or Clear to show all';
+          } else {
+            banner.style.display = 'none';
+            relatedOnlySet = null;
+            relatedOnlySourceFeatureId = null;
+          }
+        }
+      }
+
+      function clearRelatedOnly() {
+        relatedOnlySet = null;
+        relatedOnlySourceFeatureId = null;
+        const banner = document.getElementById('relatedOnlyBanner');
+        if (banner) banner.style.display = 'none';
+      }
+
+      function getActiveFilterCount() {
+        const statusTotal = document.querySelectorAll('.toggle-pill[data-filter="status"]').length;
+        const statusActive = document.querySelectorAll('.toggle-pill[data-filter="status"].active').length;
+        const priorityTotal = document.querySelectorAll('.toggle-pill[data-filter="priority"]').length;
+        const priorityActive = document.querySelectorAll('.toggle-pill[data-filter="priority"].active').length;
+        const complexityTotal = document.querySelectorAll('.toggle-pill[data-filter="complexity"]').length;
+        const complexityActive = document.querySelectorAll('.toggle-pill[data-filter="complexity"].active').length;
+        const valueTotal = document.querySelectorAll('.toggle-pill[data-filter="businessValue"]').length;
+        const valueActive = document.querySelectorAll('.toggle-pill[data-filter="businessValue"].active').length;
+        let n = 0;
+        if (statusActive < statusTotal) n++;
+        if (priorityActive < priorityTotal) n++;
+        if (complexityActive < complexityTotal) n++;
+        if (valueActive < valueTotal) n++;
+        return n;
+      }
+
+      function updateFilterBadge() {
+        const count = getActiveFilterCount();
+        const badge = document.getElementById('filterBadge');
+        const btn = document.getElementById('filterBtn');
+        if (badge && btn) {
+          badge.textContent = count;
+          badge.style.display = count > 0 ? '' : 'none';
+          btn.classList.toggle('has-active', count > 0);
+          btn.setAttribute('aria-expanded', document.getElementById('filterPopup').classList.contains('open'));
+        }
+      }
+
+      function openFilterPopup() {
+        document.getElementById('filterPopup').classList.add('open');
+        document.getElementById('filterBtn').classList.add('open');
+        document.getElementById('filterBtn').setAttribute('aria-expanded', 'true');
+      }
+      function closeFilterPopup() {
+        document.getElementById('filterPopup').classList.remove('open');
+        document.getElementById('filterBtn').classList.remove('open');
+        document.getElementById('filterBtn').setAttribute('aria-expanded', 'false');
+      }
+
+      function priorityScore(p) {
+        if (!p) return 0;
+        const u = (p || '').toUpperCase();
+        if (u === 'HIGH') return 3;
+        if (u === 'MEDIUM') return 2;
+        if (u === 'LOW') return 1;
+        return 0;
+      }
+      function complexityScoreNum(f) {
+        if (f.complexityScore != null) return Number(f.complexityScore);
+        const c = (f.complexity || '').toUpperCase();
+        if (c === 'HIGH') return 3;
+        if (c === 'MEDIUM') return 2;
+        if (c === 'LOW') return 1;
+        return 0;
+      }
+      function statusIndex(s) {
+        const idx = COLUMNS.indexOf((s || 'IDEA').toUpperCase().replace(/\s+/g, '-'));
+        return idx >= 0 ? idx : COLUMNS.length;
+      }
+      function sortByOrder(arr, orderBy) {
+        if (!orderBy) orderBy = 'value-desc';
+        arr.sort(function(a, b) {
+          switch (orderBy) {
+            case 'value-desc': {
+              const va = a.businessValueScore != null ? Number(a.businessValueScore) : -1;
+              const vb = b.businessValueScore != null ? Number(b.businessValueScore) : -1;
+              return vb - va;
+            }
+            case 'value-asc': {
+              const va = a.businessValueScore != null ? Number(a.businessValueScore) : 999;
+              const vb = b.businessValueScore != null ? Number(b.businessValueScore) : 999;
+              return va - vb;
+            }
+            case 'priority-desc':
+              return priorityScore(b.priority) - priorityScore(a.priority);
+            case 'priority-asc':
+              return priorityScore(a.priority) - priorityScore(b.priority);
+            case 'complexity-desc':
+              return complexityScoreNum(b) - complexityScoreNum(a);
+            case 'complexity-asc':
+              return complexityScoreNum(a) - complexityScoreNum(b);
+            case 'title-asc':
+              return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+            case 'title-desc':
+              return (b.title || '').localeCompare(a.title || '', undefined, { sensitivity: 'base' });
+            case 'featureId-asc':
+              return (a.featureId || '').localeCompare(b.featureId || '', undefined, { numeric: true });
+            case 'status':
+              return statusIndex(a.status) - statusIndex(b.status);
+            default:
+              return 0;
+          }
+        });
+      }
+
+      const VIEW_KEY = 'kanban-view';
+      const THEME_KEY = 'kanban-theme';
+      const ORDER_KEY = 'kanban-order';
+      const RELATIONSHIPS_KEY = 'kanban-relationships';
+      function getRelationshipsOn() {
+        const el = document.getElementById('relationshipsToggle');
+        return el && el.getAttribute('data-relationships') === 'on';
+      }
+      function setRelationshipsOn(on) {
+        const el = document.getElementById('relationshipsToggle');
+        if (!el) return;
+        el.setAttribute('data-relationships', on ? 'on' : 'off');
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        try { localStorage.setItem(RELATIONSHIPS_KEY, on ? 'on' : 'off'); } catch (_) {}
+      }
+      function getView() {
+        return document.querySelector('.toggle-pill[data-view].active')?.dataset.view || 'kanban';
+      }
+      function setView(view) {
+        document.querySelectorAll('.toggle-pill[data-view]').forEach(p => {
+          p.classList.toggle('active', p.dataset.view === view);
+        });
+        document.getElementById('board').setAttribute('data-view', view);
+        try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
+      }
+      function setTheme(theme) {
+        const isLight = theme === 'light';
+        document.documentElement.classList.toggle('theme-light', isLight);
+        document.querySelectorAll('.toggle-pill[data-theme]').forEach(p => {
+          p.classList.toggle('active', p.dataset.theme === theme);
+          p.setAttribute('aria-pressed', p.dataset.theme === theme ? 'true' : 'false');
+        });
+        try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
+      }
+
+      (function restoreTheme() {
+        try {
+          const saved = localStorage.getItem(THEME_KEY);
+          const theme = (saved === 'light' || saved === 'dark') ? saved : 'dark';
+          document.documentElement.classList.toggle('theme-light', theme === 'light');
+          document.querySelectorAll('.toggle-pill[data-theme]').forEach(p => {
+            p.classList.toggle('active', p.dataset.theme === theme);
+            p.setAttribute('aria-pressed', p.dataset.theme === theme ? 'true' : 'false');
+          });
+        } catch (_) {}
+      })();
+
+      document.getElementById('filterBtn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        const popup = document.getElementById('filterPopup');
+        if (popup.classList.contains('open')) closeFilterPopup();
+        else openFilterPopup();
+      });
+      document.addEventListener('click', function(e) {
+        const wrap = document.getElementById('filterBtnWrap');
+        if (wrap && !wrap.contains(e.target) && document.getElementById('filterPopup').classList.contains('open'))
+          closeFilterPopup();
+      });
+      document.getElementById('filterPopup').addEventListener('click', function(e) {
+        const pill = e.target.closest('.toggle-pill');
+        if (!pill) return;
+        e.stopPropagation();
+        if (pill.dataset.view) {
+          setView(pill.dataset.view);
+          if (allFeatures.length) renderBoard(allFeatures);
+          updateFilterBadge();
+          return;
+        }
+        if (pill.dataset.filter) {
+          pill.classList.toggle('active');
+          if (allFeatures.length) renderBoard(allFeatures);
+          updateFilterBadge();
+        }
+      });
+      document.getElementById('filterApply').addEventListener('click', function() {
+        closeFilterPopup();
+        if (allFeatures.length) renderBoard(allFeatures);
+      });
+      document.getElementById('filterClearAll').addEventListener('click', function() {
+        document.querySelectorAll('#filterPopup .toggle-pill[data-filter]').forEach(p => { p.classList.add('active'); });
+        closeFilterPopup();
+        if (allFeatures.length) renderBoard(allFeatures);
+        updateFilterBadge();
+      });
+      document.getElementById('filters').addEventListener('click', function(e) {
+        const pill = e.target.closest('.toggle-pill[data-theme]');
+        if (pill) { e.stopPropagation(); setTheme(pill.dataset.theme); }
+      });
+      const orderSelect = document.getElementById('orderSelect');
+      if (orderSelect) {
+        try {
+          const saved = localStorage.getItem(ORDER_KEY);
+          if (saved && orderSelect.querySelector('option[value="' + saved + '"]')) { orderSelect.value = saved; }
+        } catch (_) {}
+        orderSelect.addEventListener('change', function() {
+          try { localStorage.setItem(ORDER_KEY, orderSelect.value); } catch (_) {}
+          if (allFeatures.length) renderBoard(allFeatures);
+        });
+      }
+      const searchInput = document.getElementById('searchInput');
+      const searchClear = document.getElementById('searchClear');
+      if (searchInput) {
+        searchInput.addEventListener('input', function() {
+          if (searchClear) searchClear.style.display = searchInput.value.trim() ? '' : 'none';
+          if (allFeatures.length) renderBoard(allFeatures);
+        });
+        searchInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') { searchInput.value = ''; if (searchClear) searchClear.style.display = 'none'; if (allFeatures.length) renderBoard(allFeatures); searchInput.blur(); }
+        });
+      }
+      if (searchClear) {
+        searchClear.addEventListener('click', function() {
+          searchInput.value = '';
+          searchClear.style.display = 'none';
+          if (allFeatures.length) renderBoard(allFeatures);
+        });
+      }
+
+      function filterFeatures(features, filterState) {
+        let out = features.filter(f => {
+          let status = (f.status || 'IDEA').toUpperCase().replace(/\s+/g, '-');
+          // Normalize COMPLETED → DONE
+          if (status === 'COMPLETED') status = 'DONE';
+          const isBug = status === 'BUG' || (f.featureId || '').toString().toUpperCase().indexOf('BUG-') === 0;
+          const priority = (f.priority || 'MEDIUM').toUpperCase();
+
+          // Bugs always pass status filter if BUG is in the allowed list
+          const statusOk = (isBug && filterState.status.includes('BUG')) || filterState.status.length === 0 || filterState.status.includes(status);
+          const priorityOk = filterState.priority.length === 0 || filterState.priority.includes(priority);
+
+          // Bugs bypass complexity and value filters (they don't have these fields)
+          const complexityNorm = (f.complexity || '').toUpperCase().replace(/\s+/g, '') || (f.complexityScore != null ? (f.complexityScore === 1 ? 'LOW' : f.complexityScore === 2 ? 'MEDIUM' : 'HIGH') : null);
+          // TBD or missing complexity: show in all views so cards like "RA Data" (FEAT-101) appear in Kanban column view
+          const complexityOk = isBug || filterState.complexity.length === 0 || (complexityNorm && filterState.complexity.includes(complexityNorm)) || !complexityNorm || complexityNorm === 'TBD';
+
+          const vScore = f.businessValueScore != null ? Number(f.businessValueScore) : null;
+          let valueOk = true;
+          if (!isBug && filterState.businessValue && filterState.businessValue.length > 0) {
+            // If no score, pass filter (like complexity) so features without scores still show
+            if (vScore == null) valueOk = true;
+            else valueOk = filterState.businessValue.some(v => {
+              if (v === '6+') return vScore >= 6;
+              const n = parseInt(v, 10);
+              return !isNaN(n) && vScore === n;
+            });
+          }
+
+          let searchOk = true;
+          if (filterState.searchQuery) {
+            const q = filterState.searchQuery;
+            const title = (f.title || '').toLowerCase();
+            const featureId = (f.featureId || '').toLowerCase();
+            const description = (f.description || '').toLowerCase();
+            const fullBody = (f.fullBody || '').toLowerCase();
+            searchOk = title.includes(q) || featureId.includes(q) || description.includes(q) || fullBody.includes(q);
+          }
+          return statusOk && priorityOk && complexityOk && valueOk && searchOk;
+        });
+        if (relatedOnlySet && relatedOnlySet.size) {
+          out = out.filter(f => relatedOnlySet.has((f.featureId || '').toUpperCase()));
+        }
+        return out;
+      }
+
+      function buildRelationshipEdges(filtered) {
+        const edges = [];
+        const featureIdToId = {};
+        filtered.forEach(f => { featureIdToId[(f.featureId || '').toUpperCase()] = f.id; });
+        filtered.forEach(f => {
+          const related = (f.relatedFeatures && Array.isArray(f.relatedFeatures)) ? f.relatedFeatures : [];
+          related.forEach(r => {
+            const toId = featureIdToId[(r.featureId || '').toUpperCase()];
+            if (toId && toId !== f.id) edges.push({ fromId: f.id, toId, relation: (r.relation || 'related').toLowerCase().replace(/\s+/g, '-') });
+          });
+        });
+        return edges;
+      }
+
+      function drawRelationshipLines(board, filtered) {
+        const existing = board.querySelector('.relationships-overlay');
+        if (existing) existing.remove();
+        const edges = buildRelationshipEdges(filtered);
+        if (edges.length === 0) return;
+        var boardRect = board.getBoundingClientRect();
+        var w = Math.max(board.scrollWidth, board.clientWidth);
+        var h = Math.max(board.scrollHeight, board.clientHeight);
+        var markerId = 'rel-arrow-' + Date.now();
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'relationships-overlay');
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('pointer-events', 'none');
+        svg.innerHTML = '<defs><marker id="' + markerId + '" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" class="arrowhead"/></marker></defs>';
+        edges.forEach(function(edge) {
+          var fromCard = board.querySelector('[data-id="' + edge.fromId + '"]');
+          var toCard = board.querySelector('[data-id="' + edge.toId + '"]');
+          if (!fromCard || !toCard) return;
+          var fromR = fromCard.getBoundingClientRect();
+          var toR = toCard.getBoundingClientRect();
+          var x1 = fromR.left - boardRect.left + board.scrollLeft + fromR.width / 2;
+          var y1 = fromR.top - boardRect.top + board.scrollTop + fromR.height / 2;
+          var x2 = toR.left - boardRect.left + board.scrollLeft + toR.width / 2;
+          var y2 = toR.top - boardRect.top + board.scrollTop + toR.height / 2;
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', x1);
+          line.setAttribute('y1', y1);
+          line.setAttribute('x2', x2);
+          line.setAttribute('y2', y2);
+          line.setAttribute('marker-end', 'url(#' + markerId + ')');
+          if (edge.relation === 'implements-after') line.setAttribute('class', 'implements-after');
+          else if (edge.relation === 'complements') line.setAttribute('class', 'complements');
+          svg.appendChild(line);
+        });
+        board.appendChild(svg);
+      }
+
+      function maybeDrawRelationships() {
+        var board = document.getElementById('board');
+        if (!board || !getRelationshipsOn()) return;
+        var filterState = getFilterState();
+        var filtered = filterFeatures(allFeatures, filterState);
+        requestAnimationFrame(function() {
+          drawRelationshipLines(board, filtered);
+        });
+      }
+
+      var relationshipsRedrawTimer = null;
+      function scheduleRelationshipsRedraw() {
+        if (!getRelationshipsOn()) return;
+        if (relationshipsRedrawTimer) clearTimeout(relationshipsRedrawTimer);
+        relationshipsRedrawTimer = setTimeout(function() {
+          relationshipsRedrawTimer = null;
+          maybeDrawRelationships();
+        }, 250);
+      }
+
+      function renderDashboard(features) {
+        if (!features || !features.length) return;
+        // Normalize COMPLETED → DONE in place so Done list and counts always include completed features (e.g. FEAT-117)
+        features.forEach(function(f) {
+          var s = (f.status || '').toString().trim().toUpperCase().replace(/\s+/g, '-');
+          if (s === 'COMPLETED') f.status = 'DONE';
+        });
+        // Normalize completedDate to YYYY-MM-DD so daily/monthly grouping and "Completed on" lists are reliable (same for FEAT and BUG)
+        function completedYmd(f) {
+          var cd = (f.completedDate || '').toString().trim();
+          if (cd.length >= 10) return cd.substring(0, 10);
+          if (cd.length === 8 && /^\d{8}$/.test(cd)) return cd.substring(0, 4) + '-' + cd.substring(4, 6) + '-' + cd.substring(6, 8);
+          var fb = (f.fullBody || '').toString();
+          var match = fb.match(/\*\*Completed:\*\*\s*(\d{4}-\d{2}-\d{2})/);
+          if (match) return match[1].trim().substring(0, 10);
+          return '';
+        }
+        function lastUpdatedYmd(f) {
+          var lu = (f.lastUpdatedDate || '').toString().trim();
+          if (lu.length >= 10) return lu.substring(0, 10);
+          if (lu.length === 8 && /^\d{8}$/.test(lu)) return lu.substring(0, 4) + '-' + lu.substring(4, 6) + '-' + lu.substring(6, 8);
+          var fb = (f.fullBody || '').toString();
+          var match = fb.match(/\*\*Last Updated:\*\*\s*(\d{4}-\d{2}-\d{2})/);
+          if (match) return match[1].trim().substring(0, 10);
+          return '';
+        }
+        // Date for "New/updated" series: use Last Updated if set, else Added (so we capture both "added as idea" and "completed" — idea yesterday, done today)
+        function newOrUpdatedYmd(f) {
+          var ymd = lastUpdatedYmd(f);
+          if (ymd) return ymd;
+          var ad = (f.addedDate || '').toString().trim();
+          if (ad.length >= 10) return ad.substring(0, 10);
+          if (ad.length === 8 && /^\d{8}$/.test(ad)) return ad.substring(0, 4) + '-' + ad.substring(4, 6) + '-' + ad.substring(6, 8);
+          var fb = (f.fullBody || '').toString();
+          var match = fb.match(/\*\*Added:\*\*\s*(\d{4}-\d{2}-\d{2})/);
+          if (match) return match[1].trim().substring(0, 10);
+          return '';
+        }
+        function isDone(f) {
+          var s = (f.status || '').toString().trim().toUpperCase().replace(/\s+/g, '-');
+          return s === 'DONE' || s === 'COMPLETED';
+        }
+        var byStatus = {};
+        features.forEach(function(f) {
+          var s = (f.status || 'IDEA').toString().trim().toUpperCase();
+          if (s === 'COMPLETED') s = 'DONE';
+          byStatus[s] = (byStatus[s] || 0) + 1;
+        });
+        var total = features.length;
+        var newCount = (byStatus['IDEA'] || 0) + (byStatus['PLANNED'] || 0);
+        var inProgress = byStatus['IN-PROGRESS'] || 0;
+        var done = byStatus['DONE'] || 0;
+        var bugsOpen = byStatus['BUG'] || 0;
+        var bugsFixed = features.filter(function(f) {
+          var id = (f.featureId || '').toString().toUpperCase();
+          var s = (f.status || '').toString().trim().toUpperCase().replace(/\s+/g, '-');
+          return id.indexOf('BUG-') === 0 && (s === 'DONE' || s === 'COMPLETED');
+        }).length;
+        var maxBar = Math.max(1, total);
+        var statusOrder = ['IDEA', 'PLANNED', 'IN-PROGRESS', 'DONE', 'BUG', 'CANCELLED', 'REMOVED'];
+        var statusLabels = {
+          'IDEA': '💡 Idea',
+          'PLANNED': '📋 Planned',
+          'IN-PROGRESS': '🔄 In progress',
+          'DONE': '✅ Done',
+          'BUG': '🐛 Bug',
+          'CANCELLED': '❌ Cancelled',
+          'REMOVED': '📦 Removed'
+        };
+        var barColors = {
+          'IDEA': 'var(--text-muted)',
+          'PLANNED': 'var(--medium)',
+          'IN-PROGRESS': 'var(--accent)',
+          'DONE': 'var(--completed)',
+          'BUG': 'var(--bug)',
+          'CANCELLED': 'var(--text-muted)',
+          'REMOVED': 'var(--text-muted)'
+        };
+        var cardsEl = document.getElementById('dashboardCards');
+        var completionPct = total ? Math.round((done / total) * 100) : 0;
+        if (cardsEl) {
+          cardsEl.innerHTML =
+            '<div class="dashboard-card total"><div class="label">Total</div><div class="value">' + total + '</div></div>' +
+            '<div class="dashboard-card new"><div class="label">New (Idea + Planned)</div><div class="value">' + newCount + '</div></div>' +
+            '<div class="dashboard-card in-progress"><div class="label">In progress</div><div class="value">' + inProgress + '</div></div>' +
+            '<div class="dashboard-card done"><div class="label">Done</div><div class="value">' + done + '</div></div>' +
+            '<div class="dashboard-card bugs"><div class="label">Bugs open</div><div class="value">' + bugsOpen + '</div></div>' +
+            '<div class="dashboard-card bugs-fixed"><div class="label">Bugs fixed</div><div class="value">' + bugsFixed + '</div></div>' +
+            '<div class="dashboard-card done"><div class="label">Completion</div><div class="value">' + completionPct + '%</div></div>';
+        }
+        var recentDoneEl = document.getElementById('dashboardRecentDone');
+        if (recentDoneEl) {
+          var doneList = features.filter(function(f) { return (f.status || '').toUpperCase() === 'DONE'; });
+          doneList.sort(function(a, b) { return (b.completedDate || '').localeCompare(a.completedDate || ''); });
+          var recentIds = doneList.slice(0, 15).map(function(f) { return f.featureId || f.id || ''; }).filter(Boolean);
+          var has040 = features.some(function(f) { return (f.featureId || '').toUpperCase() === 'FEAT-040'; });
+          var line = recentIds.length ? ('Recent Done: ' + recentIds.join(', ')) : '';
+          if (line && has040) line += ' — FEAT-040 in this build ✓';
+          else if (line && !has040 && features.length > 0) line += ' — FEAT-040 not in this build; run parse and hard-refresh.';
+          else if (!line && has040) line = 'FEAT-040 in this build ✓';
+          else if (!line && !has040 && features.length > 0) line = 'No completed items in top list. Run parse_features_md.py and hard-refresh (Cmd+Shift+R).';
+          recentDoneEl.textContent = line || '';
+        }
+        var completedByDayEl = document.getElementById('dashboardCompletedByDay');
+        if (completedByDayEl) {
+          var doneListForDay = features.filter(function(f) { return (f.status || '').toUpperCase() === 'DONE'; });
+          var byDay = {};
+          doneListForDay.forEach(function(f) {
+            var ymd = completedYmd(f);
+            if (ymd) { byDay[ymd] = (byDay[ymd] || []).concat(f); }
+          });
+          var days = Object.keys(byDay).sort().reverse().slice(0, 14);
+          completedByDayEl._completedByDayMap = byDay;
+          if (days.length === 0) {
+            completedByDayEl.textContent = 'Completed by day: (none with date)';
+          } else {
+            completedByDayEl.innerHTML = 'Completed by day: ' + days.map(function(ymd) {
+              var n = (byDay[ymd] || []).length;
+              return '<button type="button" class="dashboard-day-link" data-ymd="' + escapeHtml(ymd) + '" style="margin:0 0.25rem 0.25rem 0;padding:0.15rem 0.4rem;cursor:pointer;background:var(--surface-hover);border:1px solid var(--border);border-radius:4px;color:var(--accent);font-size:inherit;">' + escapeHtml(ymd) + ' (' + n + ')</button>';
+            }).join(' ') + ' — click to open grid.';
+            completedByDayEl.querySelectorAll('.dashboard-day-link').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                var ymd = (btn.getAttribute('data-ymd') || '').trim();
+                var map = completedByDayEl._completedByDayMap || {};
+                var list = (ymd && map[ymd]) ? map[ymd] : [];
+                showDashboardTaskGrid(list, 'Completed on ' + ymd + ' (' + list.length + ')');
+                var gridWrap = document.getElementById('dashboardTaskGridWrap');
+                if (gridWrap) {
+                  gridWrap.style.display = 'block';
+                  setTimeout(function() { gridWrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+                }
+              });
+            });
+          }
+        }
+        var recentDoneForGrid = features.filter(function(f) { return (f.status || '').toUpperCase() === 'DONE'; });
+        recentDoneForGrid.sort(function(a, b) { return (b.completedDate || '').localeCompare(a.completedDate || ''); });
+        var recent15 = recentDoneForGrid.slice(0, 15);
+        showDashboardTaskGrid(recent15, 'Recent completed (last ' + recent15.length + ')');
+        var pieSvg = document.getElementById('dashboardPieSvg');
+        var pieLegend = document.getElementById('dashboardPieLegend');
+        if (pieSvg && pieLegend && total > 0) {
+          var cx = 50, cy = 50, R = 42, r = 26;
+          var startAngle = -90;
+          var segments = statusOrder.filter(function(s) { return (byStatus[s] || 0) > 0; });
+          pieSvg.innerHTML = '';
+          segments.forEach(function(status) {
+            var count = byStatus[status] || 0;
+            var sweep = (count / total) * 360;
+            var a1 = (startAngle * Math.PI) / 180;
+            var a2 = ((startAngle + sweep) * Math.PI) / 180;
+            var x1o = cx + R * Math.cos(a1);
+            var y1o = cy + R * Math.sin(a1);
+            var x2o = cx + R * Math.cos(a2);
+            var y2o = cy + R * Math.sin(a2);
+            var x1i = cx + r * Math.cos(a1);
+            var y1i = cy + r * Math.sin(a1);
+            var x2i = cx + r * Math.cos(a2);
+            var y2i = cy + r * Math.sin(a2);
+            var large = sweep > 180 ? 1 : 0;
+            var d = 'M ' + x1o + ' ' + y1o + ' A ' + R + ' ' + R + ' 0 ' + large + ' 1 ' + x2o + ' ' + y2o + ' L ' + x2i + ' ' + y2i + ' A ' + r + ' ' + r + ' 0 ' + large + ' 0 ' + x1i + ' ' + y1i + ' Z';
+            var seg = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            seg.setAttribute('d', d);
+            seg.setAttribute('fill', barColors[status] || 'var(--border)');
+            seg.setAttribute('stroke', 'var(--surface)');
+            seg.setAttribute('stroke-width', '1');
+            seg.setAttribute('data-status', status);
+            seg.style.cursor = 'pointer';
+            seg.addEventListener('click', function() {
+              var list = features.filter(function(f) {
+                var s = (f.status || '').toUpperCase().replace(/\s+/g, '-');
+                if (s === 'COMPLETED') s = 'DONE';
+                return s === status;
+              });
+              showDashboardTaskGrid(list, (statusLabels[status] || status) + ' (' + list.length + ')');
+            });
+            pieSvg.appendChild(seg);
+            startAngle += sweep;
+          });
+          pieLegend.innerHTML = segments.map(function(status) {
+            var count = byStatus[status] || 0;
+            var label = statusLabels[status] || status;
+            var color = barColors[status] || 'var(--border)';
+            return '<div class="dashboard-pie-legend-item" data-status="' + escapeHtml(status) + '" role="button" tabindex="0" title="Show grid">' +
+              '<span class="dashboard-pie-legend-swatch" style="background:' + color + '"></span>' +
+              '<span class="dashboard-pie-legend-label">' + escapeHtml(label) + '</span>' +
+              '<span class="dashboard-pie-legend-count">' + count + '</span></div>';
+          }).join('');
+          pieLegend.querySelectorAll('.dashboard-pie-legend-item[data-status]').forEach(function(item) {
+            var status = item.getAttribute('data-status');
+            var list = features.filter(function(f) {
+              var s = (f.status || '').toUpperCase().replace(/\s+/g, '-');
+              if (s === 'COMPLETED') s = 'DONE';
+              return s === status;
+            });
+            item.addEventListener('click', function() {
+              showDashboardTaskGrid(list, (statusLabels[status] || status) + ' (' + list.length + ')');
+            });
+            item.addEventListener('keydown', function(e) {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+            });
+          });
+        } else if (pieLegend) {
+          pieLegend.innerHTML = '<span class="dashboard-pie-legend-label" style="color:var(--text-muted)">No data</span>';
+        }
+        var timeChart = document.getElementById('dashboardTimeChart');
+        if (timeChart) {
+          var newByMonth = {};
+          var completedByMonth = {};
+          features.forEach(function(f) {
+            var nou = newOrUpdatedYmd(f);
+            if (nou.length >= 7) {
+              var ym = nou.substring(0, 7);
+              newByMonth[ym] = (newByMonth[ym] || 0) + 1;
+            }
+            var ym2 = completedYmd(f).substring(0, 7);
+            if (ym2.length === 7 && isDone(f)) completedByMonth[ym2] = (completedByMonth[ym2] || 0) + 1;
+          });
+          var now = new Date();
+          var startDate = new Date(2025, 11, 1);   // 2025-12
+          var endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          var allMonths = [];
+          for (var d = new Date(startDate); d <= endDate; d.setMonth(d.getMonth() + 1)) {
+            var y = d.getFullYear();
+            var m = d.getMonth() + 1;
+            allMonths.push(y + '-' + (m < 10 ? '0' : '') + m);
+          }
+          var maxVal = 1;
+          allMonths.forEach(function(m) {
+            var n = newByMonth[m] || 0;
+            var c = completedByMonth[m] || 0;
+            if (n > maxVal) maxVal = n;
+            if (c > maxVal) maxVal = c;
+          });
+          var maxH = 58;
+          function h(v) { if (v === 0) return 0; return maxVal ? Math.max(4, (v / maxVal) * maxH) : 0; }
+          var monthLabels = [];
+          allMonths.forEach(function(m) {
+            var parts = m.split('-');
+            monthLabels.push(parts[0] + '-' + parts[1]);
+          });
+          {
+            timeChart.innerHTML = allMonths.map(function(m, i) {
+              var n = newByMonth[m] || 0;
+              var c = completedByMonth[m] || 0;
+              var label = monthLabels[i] || m;
+              return '<div class="dashboard-time-bar-wrap">' +
+                '<div class="dashboard-time-bar-group">' +
+                '<span class="dashboard-time-bar new" data-clickable data-month="' + escapeHtml(m) + '" data-type="new" style="height:' + h(n) + 'px" title="New/updated: ' + n + ' (click for grid)"></span>' +
+                '<span class="dashboard-time-bar completed" data-clickable data-month="' + escapeHtml(m) + '" data-type="completed" style="height:' + h(c) + 'px" title="Completed: ' + c + ' (click for grid)"></span>' +
+                '</div>' +
+                '<span class="dashboard-time-label" title="' + label + '">' + escapeHtml(label) + '</span>' +
+                '</div>';
+            }).join('');
+            timeChart.addEventListener('click', function(e) {
+              var bar = e.target.closest('.dashboard-time-bar[data-clickable]');
+              if (!bar) return;
+              var month = bar.getAttribute('data-month');
+              var type = bar.getAttribute('data-type');
+              if (!month || !type) return;
+              var list = features.filter(function(f) {
+                if (type === 'new') {
+                  var nou = newOrUpdatedYmd(f).substring(0, 7);
+                  return nou === month;
+                }
+                return isDone(f) && completedYmd(f).substring(0, 7) === month;
+              });
+              var title = type === 'new' ? 'New/updated in ' + month + ' (' + list.length + ')' : 'Completed in ' + month + ' (' + list.length + ')';
+              showDashboardTaskGrid(list, title);
+            });
+            var rowDates = document.getElementById('dashboardTimeRowDates');
+            if (rowDates) {
+              var now = new Date();
+              var today = now.getDate();
+              var year = now.getFullYear();
+              var month = now.getMonth();
+              var mNum = month + 1;
+              var currentYm = year + '-' + (mNum < 10 ? '0' : '') + mNum;
+              var firstDay = new Date(year, month, 1).getDay();
+              var lastDay = new Date(year, month + 1, 0).getDate();
+              var numCells = (firstDay + lastDay > 35) ? 42 : 35;
+              var cells = [];
+              for (var i = 0; i < numCells; i++) cells.push(null);
+              for (var d = 1; d <= lastDay; d++) {
+                var idx = firstDay + (d - 1);
+                if (idx < numCells) cells[idx] = d;
+              }
+              var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+              var headerRow = '<tr>' + dayNames.map(function(name) {
+                return '<th>' + name + '</th>';
+              }).join('') + '</tr>';
+              var numWeeks = numCells / 7;
+              var rows = [];
+              for (var w = 0; w < numWeeks; w++) {
+                var rowCells = [];
+                for (var c = 0; c < 7; c++) {
+                  var idx = w * 7 + c;
+                  var d = cells[idx];
+                  if (d == null) {
+                    rowCells.push('<td class="calendar-empty"></td>');
+                  } else {
+                    var ymd = currentYm + '-' + (d < 10 ? '0' : '') + d;
+                    var cls = d === today ? 'calendar-day today' : 'calendar-day';
+                    rowCells.push('<td class="' + cls + ' day-clickable" data-ymd="' + escapeHtml(ymd) + '" title="' + ymd + ' — click to see items opened or closed" role="button" tabindex="0">' + d + '</td>');
+                  }
+                }
+                rows.push('<tr>' + rowCells.join('') + '</tr>');
+              }
+              rowDates.innerHTML = '<table class="dashboard-calendar-grid" aria-label="Current month (' + (month + 1) + '/' + year + ')">' +
+                '<thead>' + headerRow + '</thead><tbody>' + rows.join('') + '</tbody></table>';
+              rowDates.addEventListener('click', function(e) {
+                var dayEl = e.target.closest('.day-clickable');
+                if (!dayEl) return;
+                var ymd = dayEl.getAttribute('data-ymd');
+                if (!ymd) return;
+                rowDates.querySelectorAll('.day-clickable.selected').forEach(function(el) { el.classList.remove('selected'); });
+                dayEl.classList.add('selected');
+                var list = features.filter(function(f) {
+                  var nou = newOrUpdatedYmd(f).substring(0, 10);
+                  var cd = completedYmd(f);
+                  return nou === ymd || cd === ymd;
+                });
+                var dateLabel = (function() {
+                  var parts = ymd.split('-');
+                  if (parts.length !== 3) return ymd;
+                  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  var mi = parseInt(parts[1], 10) - 1;
+                  return (months[mi] || parts[1]) + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+                })();
+                showDashboardTaskGrid(list, dateLabel + ' — opened or closed (' + list.length + ')');
+              });
+            }
+          }
+        }
+        var dailyChart = document.getElementById('dashboardDailyChart');
+        var dailyMonthLabel = document.getElementById('dashboardDailyMonthLabel');
+        var dailyPrevBtn = document.getElementById('dashboardDailyPrev');
+        var dailyNextBtn = document.getElementById('dashboardDailyNext');
+        var dailyTodayBtn = document.getElementById('dashboardDailyToday');
+        if (dailyChart) {
+          var now = new Date();
+          var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          function renderDailyChart(year, month) {
+            var mNum = month + 1;
+            var currentYm = year + '-' + (mNum < 10 ? '0' : '') + mNum;
+            var lastDay = new Date(year, month + 1, 0).getDate();
+            var allDays = [];
+            for (var d = 1; d <= lastDay; d++) {
+              var ymd = currentYm + '-' + (d < 10 ? '0' : '') + d;
+              allDays.push(ymd);
+            }
+            var newByDay = {};
+            var completedByDay = {};
+            var newListByDay = {};
+            var completedListByDay = {};
+            features.forEach(function(f) {
+              var ymd = newOrUpdatedYmd(f);
+              if (ymd && ymd.indexOf(currentYm) === 0) {
+                newByDay[ymd] = (newByDay[ymd] || 0) + 1;
+                if (!newListByDay[ymd]) newListByDay[ymd] = [];
+                newListByDay[ymd].push(f);
+              }
+              var ymd2 = completedYmd(f);
+              if (ymd2 && ymd2.indexOf(currentYm) === 0 && isDone(f)) {
+                completedByDay[ymd2] = (completedByDay[ymd2] || 0) + 1;
+                if (!completedListByDay[ymd2]) completedListByDay[ymd2] = [];
+                completedListByDay[ymd2].push(f);
+              }
+            });
+            dailyChart._newListByDay = newListByDay;
+            dailyChart._completedListByDay = completedListByDay;
+            var maxNew = 1;
+            var maxCompleted = 1;
+            allDays.forEach(function(ymd) {
+              var n = newByDay[ymd] || 0;
+              var c = completedByDay[ymd] || 0;
+              if (n > maxNew) maxNew = n;
+              if (c > maxCompleted) maxCompleted = c;
+            });
+            var maxDayH = 58;
+            function hNew(v) { if (v === 0) return 0; return maxNew ? (v / maxNew) * maxDayH : 0; }
+            function hCompleted(v) { if (v === 0) return 0; return maxCompleted ? (v / maxCompleted) * maxDayH : 0; }
+            dailyChart.innerHTML = allDays.map(function(ymd) {
+              var n = newByDay[ymd] || 0;
+              var c = completedByDay[ymd] || 0;
+              var dayNum = parseInt(ymd.slice(8, 10), 10);
+              var label = dayNum.toString();
+              var isToday = (now.getDate() === dayNum && now.getMonth() === month && now.getFullYear() === year);
+              var labelClass = isToday ? 'dashboard-time-label today' : 'dashboard-time-label';
+              return '<div class="dashboard-time-bar-wrap">' +
+                '<div class="dashboard-time-bar-group">' +
+                '<span class="dashboard-time-bar new" data-clickable data-ymd="' + escapeHtml(ymd) + '" data-type="new" style="height:' + hNew(n) + 'px" title="' + ymd + ' New/updated: ' + n + ' (click for grid)"></span>' +
+                '<span class="dashboard-time-bar completed" data-clickable data-ymd="' + escapeHtml(ymd) + '" data-type="completed" style="height:' + hCompleted(c) + 'px" title="' + ymd + ' Completed: ' + c + ' (click for grid)"></span>' +
+                '</div>' +
+                '<span class="' + labelClass + '" title="' + ymd + '">' + escapeHtml(label) + '</span>' +
+                '</div>';
+            }).join('');
+            if (dailyMonthLabel) dailyMonthLabel.textContent = monthNames[month] + ' ' + year;
+          }
+          var dailyViewYear = now.getFullYear();
+          var dailyViewMonth = now.getMonth();
+          renderDailyChart(dailyViewYear, dailyViewMonth);
+          if (dailyPrevBtn) {
+            dailyPrevBtn.addEventListener('click', function() {
+              dailyViewMonth--;
+              if (dailyViewMonth < 0) { dailyViewMonth = 11; dailyViewYear--; }
+              renderDailyChart(dailyViewYear, dailyViewMonth);
+            });
+          }
+          if (dailyNextBtn) {
+            dailyNextBtn.addEventListener('click', function() {
+              dailyViewMonth++;
+              if (dailyViewMonth > 11) { dailyViewMonth = 0; dailyViewYear++; }
+              renderDailyChart(dailyViewYear, dailyViewMonth);
+            });
+          }
+          if (dailyTodayBtn) {
+            dailyTodayBtn.addEventListener('click', function() {
+              dailyViewYear = now.getFullYear();
+              dailyViewMonth = now.getMonth();
+              renderDailyChart(dailyViewYear, dailyViewMonth);
+            });
+          }
+          dailyChart.addEventListener('click', function(e) {
+            var bar = e.target.closest('.dashboard-time-bar[data-clickable]');
+            if (!bar) return;
+            var ymd = (bar.getAttribute('data-ymd') || '').trim().substring(0, 10);
+            var type = bar.getAttribute('data-type');
+            if (!ymd || !type) return;
+            var newList = (dailyChart._newListByDay || {})[ymd] || [];
+            var completedList = (dailyChart._completedListByDay || {})[ymd] || [];
+            var list = type === 'completed' ? completedList : newList;
+            var title = type === 'new' ? 'New/updated on ' + ymd + ' (' + list.length + ')' : 'Completed on ' + ymd + ' (' + list.length + ')';
+            showDashboardTaskGrid(list, title);
+            var gridWrap = document.getElementById('dashboardTaskGridWrap');
+            if (gridWrap) {
+              gridWrap.style.display = 'block';
+              setTimeout(function() { gridWrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+            }
+          });
+        }
+      try {
+        (function drawEnterpriseCharts(feats) {
+          var doneList = (feats || []).filter(function(f) { var cd = completedYmd(f); return isDone(f) && cd && cd.length >= 10; });
+          var total = (feats || []).length;
+          var inProg = byStatus['IN-PROGRESS'] || 0;
+          var pad = { t: 10, r: 10, b: 24, l: 28 };
+          var w = 300 - pad.l - pad.r, h = 140 - pad.t - pad.b;
+          var weeks = [];
+          for (var i = 14; i >= 0; i--) {
+            var d = new Date();
+            d.setDate(d.getDate() - i * 7);
+            d.setDate(d.getDate() + 6);
+            weeks.push(d);
+          }
+          function ymd(d) { var m = d.getMonth() + 1, day = d.getDate(); return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day; }
+          var weekLabels = weeks.map(function(d) {
+            var m = d.getMonth() + 1, day = d.getDate();
+            return (m < 10 ? '0' : '') + m + '/' + (day < 10 ? '0' : '') + day;
+          });
+          function drawWeekAxis(svgEl, gEl) {
+            var step = Math.max(1, Math.floor(n / 5));
+            for (var i = 0; i < n; i += step) {
+              var x = (n <= 1 ? 0 : i / (n - 1)) * w;
+              var tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+              tick.setAttribute('x1', pad.l + x); tick.setAttribute('y1', pad.t + h);
+              tick.setAttribute('x2', pad.l + x); tick.setAttribute('y2', pad.t + h + 4);
+              tick.setAttribute('stroke', 'var(--text-muted)'); tick.setAttribute('stroke-width', 0.5);
+              svgEl.appendChild(tick);
+              var lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              lbl.setAttribute('x', pad.l + x); lbl.setAttribute('y', pad.t + h + 16);
+              lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('fill', 'var(--text-muted)');
+              lbl.setAttribute('font-size', '8');
+              lbl.textContent = weekLabels[i];
+              svgEl.appendChild(lbl);
+            }
+          }
+          var cumul = [], thru = [];
+          for (var i = 0; i < weeks.length; i++) {
+            var end = ymd(weeks[i]);
+            var start = i === 0 ? '0000-00-00' : ymd(new Date(weeks[i - 1].getTime() + 86400000));
+            cumul.push(doneList.filter(function(f) { var c = completedYmd(f); return c && c <= end; }).length);
+            thru.push(doneList.filter(function(f) { var c = completedYmd(f); return c && c > start && c <= end; }).length);
+          }
+          var maxC = Math.max(total, 1), maxT = Math.max(1, Math.max.apply(null, thru)), n = weeks.length;
+          var cf = document.getElementById('enterpriseCfdSvg');
+          if (cf) {
+            cf.innerHTML = '';
+            if (doneList.length === 0) {
+              var txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              txt.setAttribute('x', pad.l + w / 2); txt.setAttribute('y', pad.t + h / 2); txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('fill', 'var(--text-muted)'); txt.setAttribute('font-size', '12');
+              txt.textContent = 'No completed items with dates yet';
+              cf.appendChild(txt);
+            } else {
+            var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('transform', 'translate(' + pad.l + ',' + pad.t + ')');
+            for (var i = 0; i < n; i++) {
+              var x = (n <= 1 ? 0 : i / (n - 1)) * w;
+              var d = cumul[i], bp = Math.max(0, total - d - (i === n - 1 ? inProg : 0));
+              var sy = h, dy = h - (d / maxC) * h, by = dy - (bp / maxC) * h;
+              var r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              r.setAttribute('x', Math.max(0, x - 2)); r.setAttribute('y', by); r.setAttribute('width', 4); r.setAttribute('height', Math.max(1, dy - by));
+              r.setAttribute('fill', 'var(--medium)'); g.appendChild(r);
+              r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              r.setAttribute('x', Math.max(0, x - 2)); r.setAttribute('y', dy); r.setAttribute('width', 4); r.setAttribute('height', Math.max(1, h - dy));
+              r.setAttribute('fill', 'var(--completed)'); g.appendChild(r);
+            }
+            var ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            ln.setAttribute('x1', 0); ln.setAttribute('y1', h); ln.setAttribute('x2', w); ln.setAttribute('y2', h); ln.setAttribute('stroke', 'var(--border)');
+            g.appendChild(ln); cf.appendChild(g);
+            drawWeekAxis(cf);
+            var leg = document.getElementById('enterpriseCfdLegend');
+            if (leg) leg.innerHTML = '<span><span class="swatch" style="background:var(--medium)"></span> Backlog</span><span><span class="swatch" style="background:var(--completed)"></span> Done</span>';
+            }
+          }
+          var cy = document.getElementById('enterpriseCycleSvg');
+          if (cy) {
+            cy.innerHTML = '';
+            if (doneList.length === 0) {
+              var txt2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              txt2.setAttribute('x', pad.l + w / 2); txt2.setAttribute('y', pad.t + h / 2); txt2.setAttribute('text-anchor', 'middle'); txt2.setAttribute('fill', 'var(--text-muted)'); txt2.setAttribute('font-size', '12');
+              txt2.textContent = 'No completed items with dates yet';
+              cy.appendChild(txt2);
+            } else {
+            var g2 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g2.setAttribute('transform', 'translate(' + pad.l + ',' + pad.t + ')');
+            var bw = Math.max(2, w / n - 2);
+            for (var i = 0; i < thru.length; i++) {
+              var rx = (i / (n - 1 || 1)) * w - bw / 2;
+              var rh = (thru[i] / maxT) * h;
+              var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              rect.setAttribute('x', rx); rect.setAttribute('y', h - rh); rect.setAttribute('width', bw); rect.setAttribute('height', rh);
+              rect.setAttribute('fill', 'var(--completed)'); rect.setAttribute('rx', 2);
+              g2.appendChild(rect);
+            }
+            var ln2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            ln2.setAttribute('x1', 0); ln2.setAttribute('y1', h); ln2.setAttribute('x2', w); ln2.setAttribute('y2', h); ln2.setAttribute('stroke', 'var(--border)');
+            g2.appendChild(ln2); cy.appendChild(g2);
+            drawWeekAxis(cy);
+            var leg2 = document.getElementById('enterpriseCycleLegend');
+            if (leg2) leg2.innerHTML = 'Completed per week';
+            }
+          }
+          var bu = document.getElementById('enterpriseBurnupSvg');
+          if (bu) {
+            bu.innerHTML = '';
+            if (doneList.length === 0) {
+              var txt3 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              txt3.setAttribute('x', pad.l + w / 2); txt3.setAttribute('y', pad.t + h / 2); txt3.setAttribute('text-anchor', 'middle'); txt3.setAttribute('fill', 'var(--text-muted)'); txt3.setAttribute('font-size', '12');
+              txt3.textContent = 'No completed items with dates yet';
+              bu.appendChild(txt3);
+            } else {
+            var g3 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g3.setAttribute('transform', 'translate(' + pad.l + ',' + pad.t + ')');
+            var mb = Math.max(total, 1);
+            var pd = '', pt = '';
+            for (var i = 0; i < n; i++) {
+              var bx = (i / (n - 1 || 1)) * w;
+              pd += (i ? 'L' : 'M') + bx + ' ' + (h - (cumul[i] / mb) * h);
+              pt += (i ? 'L' : 'M') + bx + ' ' + (h - (total / mb) * h);
+            }
+            var lt = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            lt.setAttribute('d', pt); lt.setAttribute('fill', 'none'); lt.setAttribute('stroke', 'var(--border)'); lt.setAttribute('stroke-width', 2); lt.setAttribute('stroke-dasharray', '4,3');
+            g3.appendChild(lt);
+            var ld = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            ld.setAttribute('d', pd); ld.setAttribute('fill', 'none'); ld.setAttribute('stroke', 'var(--completed)'); ld.setAttribute('stroke-width', 2);
+            g3.appendChild(ld);
+            var ln3 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            ln3.setAttribute('x1', 0); ln3.setAttribute('y1', h); ln3.setAttribute('x2', w); ln3.setAttribute('y2', h); ln3.setAttribute('stroke', 'var(--border)');
+            g3.appendChild(ln3); bu.appendChild(g3);
+            drawWeekAxis(bu);
+            var leg3 = document.getElementById('enterpriseBurnupLegend');
+            if (leg3) leg3.innerHTML = '<span><span class="swatch" style="background:var(--completed)"></span> Done</span><span><span class="swatch" style="border:1px solid var(--border)"></span> Scope</span>';
+            }
+          }
+          var bl = document.getElementById('enterpriseBacklogSvg');
+          if (bl) {
+            bl.innerHTML = '';
+            if (doneList.length === 0 && total === 0) {
+              var txt4 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              txt4.setAttribute('x', pad.l + w / 2); txt4.setAttribute('y', pad.t + h / 2); txt4.setAttribute('text-anchor', 'middle'); txt4.setAttribute('fill', 'var(--text-muted)'); txt4.setAttribute('font-size', '11');
+              txt4.textContent = 'No data';
+              bl.appendChild(txt4);
+            } else {
+            var g4 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g4.setAttribute('transform', 'translate(' + pad.l + ',' + pad.t + ')');
+            var maxB = Math.max(total, 1);
+            for (var i = 0; i < n; i++) {
+              var rem = Math.max(0, total - cumul[i]);
+              var x = (n <= 1 ? 0 : i / (n - 1)) * w;
+              var rh = (rem / maxB) * h;
+              var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              rect.setAttribute('x', Math.max(0, x - 2)); rect.setAttribute('y', h - rh); rect.setAttribute('width', 4); rect.setAttribute('height', Math.max(1, rh));
+              rect.setAttribute('fill', 'var(--medium)');
+              g4.appendChild(rect);
+            }
+            var ln4 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            ln4.setAttribute('x1', 0); ln4.setAttribute('y1', h); ln4.setAttribute('x2', w); ln4.setAttribute('y2', h); ln4.setAttribute('stroke', 'var(--border)');
+            g4.appendChild(ln4); bl.appendChild(g4);
+            drawWeekAxis(bl);
+            var leg4 = document.getElementById('enterpriseBacklogLegend');
+            if (leg4) leg4.innerHTML = '<span><span class="swatch" style="background:var(--medium)"></span> Remaining</span>';
+            }
+          }
+        })(features);
+      } catch (err) { if (typeof console !== 'undefined' && console.error) console.error('Enterprise charts:', err); }
+      }
+
+      function renderDashboardGridTable(features) {
+        var statusLabels = {
+          'IDEA': '💡 Idea',
+          'PLANNED': '📋 Planned',
+          'IN-PROGRESS': '🔄 In progress',
+          'DONE': '✅ Done',
+          'BUG': '🐛 Bug',
+          'CANCELLED': '❌ Cancelled',
+          'REMOVED': '📦 Removed'
+        };
+        var rows = features.map(function(f) {
+          var status = (f.status || 'IDEA').toUpperCase().replace(/\s+/g, '-');
+          var statusText = statusLabels[status] || status;
+          var title = (f.title || '').trim();
+          var desc = (f.description || '').trim();
+          if (title.length > 120) title = title.slice(0, 117) + '\u2026';
+          if (desc.length > 80) desc = desc.slice(0, 77) + '\u2026';
+          var addedDate = (f.addedDate || '').toString().trim().substring(0, 10);
+          var completedDate = (f.completedDate || '').toString().trim().substring(0, 10);
+          return '<tr data-id="' + escapeHtml(f.id) + '" role="button" tabindex="0" title="Click to open">' +
+            '<td class="col-id">' + escapeHtml(f.featureId || '—') + '</td>' +
+            '<td class="col-title">' + escapeHtml(title || '—') + '</td>' +
+            '<td class="col-status">' + escapeHtml(statusText) + '</td>' +
+            '<td class="col-priority">' + escapeHtml(f.priority || '—') + '</td>' +
+            '<td class="col-added">' + escapeHtml(addedDate || '—') + '</td>' +
+            '<td class="col-completed">' + escapeHtml(completedDate || '—') + '</td>' +
+            '<td class="col-desc">' + escapeHtml(desc || '—') + '</td>' +
+            '</tr>';
+        }).join('');
+        return '<table class="dashboard-task-grid-table" cellspacing="0" role="grid">' +
+          '<thead><tr>' +
+          '<th class="col-id">Feature ID</th>' +
+          '<th class="col-title">Title</th>' +
+          '<th class="col-status">Status</th>' +
+          '<th class="col-priority">Priority</th>' +
+          '<th class="col-added">Added</th>' +
+          '<th class="col-completed">Completed</th>' +
+          '<th class="col-desc">Description</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>';
+      }
+
+      function attachDashboardGridListeners(gridEl, features) {
+        features.forEach(function(f) {
+          var row = gridEl.querySelector('tr[data-id="' + f.id + '"]');
+          if (row) {
+            row.addEventListener('click', function() { openModal(f); });
+            row.addEventListener('keydown', function(e) {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(f); }
+            });
+          }
+        });
+      }
+
+      function showDashboardTaskGrid(features, title) {
+        var wrap = document.getElementById('dashboardTaskGridWrap');
+        var gridEl = document.getElementById('dashboardTaskGrid');
+        var titleEl = document.getElementById('dashboardTaskGridTitle');
+        if (!wrap || !gridEl || !titleEl) return;
+        titleEl.textContent = title;
+        gridEl.innerHTML = '';
+        if (features.length === 0) {
+          gridEl.innerHTML = '<p class="dashboard-task-grid-empty" style="padding:1rem;color:var(--text-muted)">No items.</p>';
+        } else {
+          var sorted = features.slice();
+          // Order by latest date: finished (completed) items at top, then by completedDate desc; items without completedDate by lastUpdatedDate desc
+          sorted.sort(function(a, b) {
+            var da = (a.completedDate || '').toString().trim().substring(0, 10);
+            var db = (b.completedDate || '').toString().trim().substring(0, 10);
+            if (da && db) {
+              var cmp = db.localeCompare(da);
+              if (cmp !== 0) return cmp;
+              return (a.featureId || '').localeCompare(b.featureId || '');
+            }
+            if (da) return -1;
+            if (db) return 1;
+            var ua = (a.lastUpdatedDate || '').toString().trim().substring(0, 10);
+            var ub = (b.lastUpdatedDate || '').toString().trim().substring(0, 10);
+            if (ua && ub) return ub.localeCompare(ua);
+            if (ua) return -1;
+            if (ub) return 1;
+            return (a.featureId || '').localeCompare(b.featureId || '');
+          });
+          gridEl.innerHTML = renderDashboardGridTable(sorted);
+          attachDashboardGridListeners(gridEl, sorted);
+        }
+        wrap.style.display = 'block';
+        wrap.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(function() {
+          wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
+
+      function hideDashboardTaskGrid() {
+        var wrap = document.getElementById('dashboardTaskGridWrap');
+        if (wrap) {
+          wrap.style.display = 'none';
+          wrap.setAttribute('aria-hidden', 'true');
+        }
+        var rowDates = document.getElementById('dashboardTimeRowDates');
+        if (rowDates) rowDates.querySelectorAll('.day-clickable.selected').forEach(function(el) { el.classList.remove('selected'); });
+      }
+
+      function attachCardListeners(container, features) {
+        features.forEach(f => {
+          const card = container.querySelector(`[data-id="${f.id}"]`);
+          if (card) {
+            card.addEventListener('click', () => openModal(f));
+            card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(f); } });
+            const copyBtn = card.querySelector('.copy-feature-btn');
+            if (copyBtn) {
+              copyBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                const featureId = (f.featureId || '').trim();
+                if (!featureId) return;
+                navigator.clipboard.writeText(featureId).then(function() {
+                  const orig = copyBtn.textContent;
+                  copyBtn.textContent = 'Copied!';
+                  setTimeout(function() {
+                    copyBtn.textContent = orig;
+                  }, 1500);
+                }).catch(function() {});
+              });
+            }
+            const focusBtn = card.querySelector('.card-focus-related');
+            if (focusBtn) {
+              const fidUpper = (f.featureId || '').toUpperCase();
+              const isSource = relatedOnlySet && relatedOnlySourceFeatureId && (relatedOnlySourceFeatureId || '').toUpperCase() === fidUpper;
+              if (isSource) focusBtn.classList.add('is-active');
+              focusBtn.setAttribute('title', isSource ? 'Show all cards (clear relationship filter)' : (focusBtn.getAttribute('title') || ''));
+              focusBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                const fid = (f.featureId || '').toUpperCase();
+                if (relatedOnlySet && relatedOnlySourceFeatureId && (relatedOnlySourceFeatureId || '').toUpperCase() === fid) {
+                  clearRelatedOnly();
+                  if (allFeatures.length) renderBoard(allFeatures);
+                  return;
+                }
+                const set = getRelatedOnlySet(f, allFeatures);
+                setRelatedOnly(set, f.featureId);
+                if (allFeatures.length) renderBoard(allFeatures);
+              });
+            }
+          }
+        });
+      }
+
+      function renderBoard(features) {
+        const filterState = getFilterState();
+        const filtered = filterFeatures(features, filterState);
+        const orderBy = (document.getElementById('orderSelect') && document.getElementById('orderSelect').value) || 'value-desc';
+        sortByOrder(filtered, orderBy);
+        const total = features.length;
+        const countEl = document.getElementById('featureCount');
+        if (countEl) {
+          countEl.textContent = total === filtered.length
+            ? total + ' feature' + (total !== 1 ? 's' : '')
+            : filtered.length + ' of ' + total + ' feature' + (total !== 1 ? 's' : '');
+        }
+        const board = document.getElementById('board');
+        const view = getView();
+        board.innerHTML = '';
+        board.className = 'board view-' + view;
+
+        if (view === 'grid') {
+          const container = document.createElement('div');
+          container.className = 'grid-container';
+          filtered.forEach(f => container.insertAdjacentHTML('beforeend', renderCard(f)));
+          board.appendChild(container);
+          attachCardListeners(container, filtered);
+          maybeDrawRelationships();
+          return;
+        }
+        if (view === 'list') {
+          const container = document.createElement('div');
+          container.className = 'list-container';
+          filtered.forEach(f => container.insertAdjacentHTML('beforeend', renderCard(f)));
+          board.appendChild(container);
+          attachCardListeners(container, filtered);
+          maybeDrawRelationships();
+          return;
+        }
+
+        const byStatus = {};
+        COLUMNS.forEach(c => { byStatus[c] = []; });
+        filtered.forEach(f => {
+          var raw = (f.status != null && f.status !== '') ? String(f.status).trim() : 'IDEA';
+          var status = raw.toUpperCase().replace(/\s+/g, '-');
+          // Normalize COMPLETED → DONE
+          if (status === 'COMPLETED') status = 'DONE';
+          // Done bugs stay in Done column like other features; only open bugs go to Bug column
+          if ((f.featureId || '').toString().toUpperCase().indexOf('BUG-') === 0 && status !== 'DONE') status = 'BUG';
+          if (byStatus[status]) byStatus[status].push(f);
+          else (byStatus['IDEA'] = byStatus['IDEA'] || []).push(f);
+        });
+        // Done column: order by last completed (newest first)
+        if (byStatus['DONE'] && byStatus['DONE'].length > 0) {
+          byStatus['DONE'].sort(function(a, b) {
+            var da = a.completedDate || '';
+            var db = b.completedDate || '';
+            return db.localeCompare(da);
+          });
+        }
+        COLUMNS.forEach(col => {
+          const list = byStatus[col] || [];
+          const colEl = document.createElement('div');
+          colEl.className = 'column' + (col === 'BUG' ? ' column-bug' : '');
+          const bugDot = col === 'BUG' ? '<span class="column-bug-dot" title="Bug column"></span>' : '';
+          const bugEmptyPlaceholder = (col === 'BUG' && list.length === 0)
+            ? '<div class="column-bug-empty" aria-label="No bugs">No bugs reported</div>'
+            : '';
+          colEl.innerHTML = `
+            <h2>${bugDot}${COLUMN_LABELS[col] || col} <span class="count">${list.length}</span></h2>
+            <div class="column-cards" id="col-${col}">${bugEmptyPlaceholder}</div>`;
+          const cardsContainer = colEl.querySelector('.column-cards');
+          list.forEach(f => {
+            cardsContainer.insertAdjacentHTML('beforeend', renderCard(f));
+          });
+          board.appendChild(colEl);
+          attachCardListeners(colEl, list);
+        });
+        maybeDrawRelationships();
+      }
+
+      let allFeatures = [];
+      (function restoreView() {
+        try {
+          const saved = localStorage.getItem(VIEW_KEY);
+          if (saved && ['kanban', 'grid', 'list'].includes(saved)) setView(saved);
+        } catch (_) {}
+      })();
+      (function restoreRelationships() {
+        try {
+          const saved = localStorage.getItem(RELATIONSHIPS_KEY);
+          const on = saved === 'on';
+          setRelationshipsOn(on);
+        } catch (_) {}
+      })();
+      document.getElementById('relatedOnlyClear').addEventListener('click', function() {
+        clearRelatedOnly();
+        if (allFeatures.length) renderBoard(allFeatures);
+      });
+      var MAIN_TAB_KEY = 'kanban-main-tab';
+      function setMainTab(tabName) {
+        var kanbanPanel = document.getElementById('panelKanban');
+        var dashboardPanel = document.getElementById('panelDashboard');
+        var tabKanban = document.getElementById('tabKanban');
+        var tabDashboard = document.getElementById('tabDashboard');
+        if (!kanbanPanel || !dashboardPanel || !tabKanban || !tabDashboard) return;
+        if (tabName === 'dashboard') {
+          kanbanPanel.classList.remove('active');
+          dashboardPanel.classList.add('active');
+          tabKanban.classList.remove('active');
+          tabKanban.setAttribute('aria-selected', 'false');
+          tabDashboard.classList.add('active');
+          tabDashboard.setAttribute('aria-selected', 'true');
+        } else {
+          kanbanPanel.classList.add('active');
+          dashboardPanel.classList.remove('active');
+          tabKanban.classList.add('active');
+          tabKanban.setAttribute('aria-selected', 'true');
+          tabDashboard.classList.remove('active');
+          tabDashboard.setAttribute('aria-selected', 'false');
+        }
+        try { localStorage.setItem(MAIN_TAB_KEY, tabName); } catch (_) {}
+      }
+      document.getElementById('tabKanban').addEventListener('click', function() { setMainTab('kanban'); });
+      document.getElementById('tabDashboard').addEventListener('click', function() { setMainTab('dashboard'); });
+      (function restoreMainTab() {
+        try {
+          var saved = localStorage.getItem(MAIN_TAB_KEY);
+          if (saved === 'dashboard') setMainTab('dashboard');
+        } catch (_) {}
+      })();
+
+      (function initEnterpriseCollapse() {
+        var section = document.getElementById('enterpriseSection');
+        var header = document.getElementById('enterpriseHeader');
+        var key = 'kanban-enterprise-collapsed';
+        if (!section || !header) return;
+        try {
+          if (localStorage.getItem(key) === 'false') section.classList.remove('collapsed');
+        } catch (_) {}
+        header.addEventListener('click', function() {
+          var isCollapsed = section.classList.toggle('collapsed');
+          header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+          try { localStorage.setItem(key, isCollapsed ? 'true' : 'false'); } catch (_) {}
+        });
+        header.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+      })();
+      (function initDebugCollapse() {
+        var section = document.getElementById('debugSection');
+        var header = document.getElementById('debugHeader');
+        var key = 'kanban-debug-collapsed';
+        if (!section || !header) return;
+        try {
+          if (localStorage.getItem(key) === 'false') section.classList.remove('collapsed');
+        } catch (_) {}
+        header.addEventListener('click', function() {
+          var isCollapsed = section.classList.toggle('collapsed');
+          header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+          try { localStorage.setItem(key, isCollapsed ? 'true' : 'false'); } catch (_) {}
+        });
+        header.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+      })();
+
+      document.getElementById('relationshipsToggle').addEventListener('click', function() {
+        setRelationshipsOn(!getRelationshipsOn());
+        if (getRelationshipsOn()) maybeDrawRelationships();
+        else {
+          var board = document.getElementById('board');
+          if (board) {
+            var overlay = board.querySelector('.relationships-overlay');
+            if (overlay) overlay.remove();
+          }
+        }
+      });
+      window.addEventListener('resize', scheduleRelationshipsRedraw);
+      getData()
+        .then(function(data) {
+          allFeatures = data.features || [];
+          // Normalize COMPLETED → DONE; Done bugs stay in Done column; only open bugs go to Bug column
+          allFeatures.forEach(function(f) {
+            var st = (f.status || '').toString().toUpperCase().trim();
+            // Normalize COMPLETED → DONE
+            if (st === 'COMPLETED') f.status = 'DONE';
+            // Re-read status after normalization for bug check
+            st = (f.status || '').toString().toUpperCase().trim();
+            var sid = (f.featureId || '').toString().toUpperCase();
+            if (sid.indexOf('BUG-') === 0 && st !== 'DONE') f.status = 'BUG';
+          });
+          var bugCount = allFeatures.filter(function(f) { return (f.status || '').toString().toUpperCase().trim() === 'BUG' || (f.featureId || '').toString().toUpperCase().indexOf('BUG-') === 0; }).length;
+          var hasFeat117 = allFeatures.some(function(f) { return (f.featureId || '').toUpperCase() === 'FEAT-117'; });
+          var hasFeat040 = allFeatures.some(function(f) { return (f.featureId || '').toUpperCase() === 'FEAT-040'; });
+          var doneCount = allFeatures.filter(function(f) { return (f.status || '').toString().toUpperCase().trim() === 'DONE'; }).length;
+          var doneIds = allFeatures.filter(function(f) { return (f.status || '').toString().toUpperCase().trim() === 'DONE'; }).map(function(f) { return f.featureId || ''; }).slice(0, 15);
+          if (typeof console !== 'undefined' && console.log) console.log('Kanban: loaded ' + allFeatures.length + ' features, Done: ' + doneCount + ' — ' + doneIds.join(', ') + (doneCount > 15 ? '…' : ''));
+          var loadingEl = document.getElementById('loading');
+          if (loadingEl) loadingEl.style.display = 'none';
+          if (allFeatures.length === 0) {
+            var board = document.getElementById('board');
+            if (board) board.innerHTML = '<div class="loading" style="padding:2rem;text-align:center;color:var(--text-muted)">No data. Run <code>python3 _docs/product/kaban/parse_features_md.py</code> from repo root, then open <strong>kanban.html</strong> (not the template). Or serve this folder (e.g. <code>python -m http.server 8765</code>) and open <a href="http://localhost:8765/kanban.html">http://localhost:8765/kanban.html</a>.</div>';
+            return;
+          }
+          renderBoard(allFeatures);
+          renderDashboard(allFeatures);
+          updateFilterBadge();
+        })
+        .catch(function(err) {
+          document.getElementById('board').innerHTML = '<div class="error">Failed to load features. Ensure features.json exists (run parse_features_md.py) or open this file from a server.</div>';
+          console.error(err);
+        });
+
+      document.getElementById('modalClose').addEventListener('click', closeModal);
+      document.getElementById('modalOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+      });
+      var taskGridBack = document.getElementById('dashboardTaskGridBack');
+      if (taskGridBack) taskGridBack.addEventListener('click', hideDashboardTaskGrid);
+    })();
+  </script>
+</body>
+</html>
