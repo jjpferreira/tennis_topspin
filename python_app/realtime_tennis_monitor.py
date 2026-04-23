@@ -451,6 +451,7 @@ class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int)
     status = pyqtSignal(str)
+    ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
 
     def __init__(self):
         super().__init__()
@@ -505,6 +506,7 @@ class TennisBleWorker(QObject):
                 ping_ok = await self._await_command_ack(
                     STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
                 )
+                self.ble_handshake.emit(ping_ok)
                 self.connected.emit(True, device.address)
                 if ping_ok:
                     self.status.emit("Connected — health check OK (PONG). Live streaming.")
@@ -686,12 +688,16 @@ class TennisDashboard(QMainWindow):
         self.sensors_chip = QLabel("SENSORS\nDISCONNECTED")
         self.sensors_chip.setObjectName("ChipErr")
         self.sensors_chip.setMinimumWidth(95)
+        self.link_chip = QLabel("HANDSHAKE\n—")
+        self.link_chip.setObjectName("ChipMuted")
+        self.link_chip.setMinimumWidth(102)
         self.clock_lbl = QLabel("--:--:--\n--- --, ----")
         self.clock_lbl.setObjectName("ClockLabel")
         self.clock_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.clock_lbl.setMinimumWidth(120)
         hh.addWidget(self.mode_chip)
         hh.addWidget(self.sensors_chip)
+        hh.addWidget(self.link_chip)
         hh.addWidget(self.clock_lbl)
         outer.addWidget(header)
 
@@ -831,6 +837,11 @@ class TennisDashboard(QMainWindow):
         self.statusBar().showMessage("Auto-discovery enabled: scanning for tennis BLE sensor...")
         self.start_worker()
 
+    def _reset_link_badge(self):
+        self.link_chip.setText("HANDSHAKE\n—")
+        self.link_chip.setObjectName("ChipMuted")
+        self.link_chip.style().polish(self.link_chip)
+
     def _panel(self, title: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName("Panel")
@@ -870,12 +881,15 @@ class TennisDashboard(QMainWindow):
             #MiniStatTitle { color: #9db5ce; font-size: 10px; }
             #MiniStatValue { color: #e9f2ff; font-size: 15px; font-weight: 800; }
             #SmallMuted { color: #a1b5cc; font-size: 10px; }
-            #ChipOk, #ChipErr {
+            #ChipOk, #ChipErr, #ChipMuted, #ChipLinkOk, #ChipLinkWarn {
                 border: 1px solid #1f4368; border-radius: 7px; padding: 6px;
                 font-size: 10px; font-weight: 800; qproperty-alignment: AlignCenter;
             }
             #ChipOk { color: #8ff0af; }
             #ChipErr { color: #ff7f7f; }
+            #ChipMuted { color: #7a8fa8; border-color: #223952; }
+            #ChipLinkOk { color: #b8f7ff; border-color: #2a9db8; background: #062a35; }
+            #ChipLinkWarn { color: #ffd78a; border-color: #8a6a2a; background: #2a2210; }
             #ClockLabel { color: #d8e5f7; font-size: 11px; font-weight: 600; }
             QPushButton {
                 background: #103154; border: 1px solid #255784; border-radius: 7px;
@@ -990,11 +1004,15 @@ class TennisDashboard(QMainWindow):
         if self._thread and self._thread.isRunning():
             return
         self.statusBar().showMessage("Connecting to real sensor...")
+        self.link_chip.setText("HANDSHAKE\n…")
+        self.link_chip.setObjectName("ChipMuted")
+        self.link_chip.style().polish(self.link_chip)
         self._thread = QThread()
         self._worker = TennisBleWorker()
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.connected.connect(self._on_connected)
+        self._worker.ble_handshake.connect(self._on_ble_handshake)
         self._worker.telemetry.connect(self._on_telemetry)
         self._worker.status.connect(self._on_status)
         self._thread.start()
@@ -1014,9 +1032,19 @@ class TennisDashboard(QMainWindow):
         self.sensors_chip.setText("SENSORS\nDISCONNECTED")
         self.sensors_chip.setObjectName("ChipErr")
         self.sensors_chip.style().polish(self.sensors_chip)
+        self._reset_link_badge()
         self.statusBar().showMessage(
             "Simulation active until a real TENNIS_KY003 sensor is found (auto-scan on) or you press CONNECT SENSOR."
         )
+
+    def _on_ble_handshake(self, pong_ok: bool):
+        if pong_ok:
+            self.link_chip.setText("HANDSHAKE\nPONG ✓")
+            self.link_chip.setObjectName("ChipLinkOk")
+        else:
+            self.link_chip.setText("HANDSHAKE\nNO PONG")
+            self.link_chip.setObjectName("ChipLinkWarn")
+        self.link_chip.style().polish(self.link_chip)
 
     def _on_connected(self, ok: bool, addr: str):
         if ok:
@@ -1036,6 +1064,7 @@ class TennisDashboard(QMainWindow):
             self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
+            self._reset_link_badge()
         self.sensors_chip.style().polish(self.sensors_chip)
 
     def _on_status(self, msg: str):
