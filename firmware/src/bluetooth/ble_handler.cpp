@@ -1,11 +1,9 @@
 #include "../../include/bluetooth/ble_handler.h"
-#include <string>
 
 class TennisCommandCallbacks : public BLECharacteristicCallbacks {
 public:
     void onWrite(BLECharacteristic* c) override {
-        std::string raw = c->getValue();
-        String cmd(raw.c_str());
+        String cmd = c->getValue();
         cmd.trim();
         if (cmd.length() > 0 && cmd.length() < 64) {
             BLEHandler::getInstance().onDataReceived(cmd);

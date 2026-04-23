@@ -14,9 +14,15 @@
 #include "./include/logger.h"
 #include "./include/sensor/ky003_sensor.h"
 #include "./include/bluetooth/ble_handler.h"
+#if LED_RING_ENABLED
+#include "./include/led/led_handler.h"
+#endif
 
 KY003Sensor sensor;
 BLEHandler& bleHandler = BLEHandler::getInstance();
+#if LED_RING_ENABLED
+LEDHandler& ledHandler = LEDHandler::getInstance();
+#endif
 static bool g_streamEnabled = BLE_STREAM_DEFAULT_ENABLED != 0;
 static uint32_t g_lastStreamKeepaliveMs = 0;
 static bool g_streamTimeoutWarned = false;
@@ -44,6 +50,9 @@ void setup() {
     Logger::info(String(APP_NAME) + " " + FIRMWARE_VERSION_DISPLAY + " booting");
 
     sensor.begin();
+#if LED_RING_ENABLED
+    ledHandler.begin();
+#endif
     bleHandler.begin();
     bleHandler.startAdvertising();
 
@@ -95,4 +104,15 @@ void loop() {
             sensor.getRateX10(now)
         );
     }
+
+#if LED_RING_ENABLED
+    static uint32_t s_lastLedMs = 0;
+    if ((now - s_lastLedMs) >= LED_UPDATE_INTERVAL_MS) {
+        s_lastLedMs = now;
+        float hitsPerSec =
+            static_cast<float>(sensor.getRateX10(now)) / RATE_X10_SCALE;
+        ledHandler.updateLevel(hitsPerSec);
+        ledHandler.update();
+    }
+#endif
 }
