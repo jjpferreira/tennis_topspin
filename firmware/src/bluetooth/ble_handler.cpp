@@ -73,9 +73,20 @@ void BLEHandler::setupCharacteristics() {
 
     _commandChar = _service->createCharacteristic(
         TENNIS_COMMAND_UUID,
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE |
+            BLECharacteristic::PROPERTY_WRITE_NR | BLECharacteristic::PROPERTY_NOTIFY
     );
+    _commandChar->addDescriptor(new BLE2902());
     _commandChar->setCallbacks(new TennisCommandCallbacks());
+}
+
+void BLEHandler::notifyCommandAck(const char* utf8) {
+    if (!_connected || !_commandChar || !utf8) {
+        return;
+    }
+    String s(utf8);
+    _commandChar->setValue(s);
+    _commandChar->notify();
 }
 
 void BLEHandler::setupAdvertising() {

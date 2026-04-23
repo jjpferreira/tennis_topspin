@@ -2,8 +2,9 @@
 """
 Tennis Shot Simulator + BLE Live Monitor (KY-003)
 
-Default mode uses a simulator sensor.
-Press CONNECT SENSOR to switch to real BLE streaming when available.
+On launch, auto-discovery scans for the real BLE sensor (name TENNIS_KY003*
+or advertised tennis service UUID). Simulation stays active until a device
+connects. CONNECT SENSOR retries discovery manually.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient
 from PyQt6.QtWidgets import (
@@ -37,18 +40,68 @@ from PyQt6.QtWidgets import (
 )
 
 # BLE UUIDs (must match firmware)
+TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914b"  # advertised; ble_constants.h
 SENSOR_STATE_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a1"
 HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
 COMMAND_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a4"
 NAME_PREFIX = "TENNIS_KY003"
+BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
 STREAM_ARM_COMMAND = "STREAM:ON"
 STREAM_DISARM_COMMAND = "STREAM:OFF"
 STREAM_KEEPALIVE_COMMAND = "PING"
 STREAM_KEEPALIVE_INTERVAL_S = 1.2
+PING_HEALTH_TIMEOUT_S = 2.5
+PING_ACK_SUBSTRING = "PONG"
 LIVE_STREAM_STALE_TIMEOUT_S = 3.5
 LIVE_STREAM_RECOVERY_COOLDOWN_S = 4.0
+
+
+def _norm_uuid(u: str) -> str:
+    return u.replace("-", "").lower()
+
+
+def _adv_has_tennis_service(adv: AdvertisementData | None) -> bool:
+    if not adv or not adv.service_uuids:
+        return False
+    want = _norm_uuid(TENNIS_SERVICE_UUID)
+    return any(_norm_uuid(x) == want for x in adv.service_uuids)
+
+
+def _device_local_name(device: BLEDevice, adv: AdvertisementData | None) -> str | None:
+    if device.name:
+        return device.name
+    if adv and adv.local_name:
+        return adv.local_name
+    return None
+
+
+def _tennis_device_rank(device: BLEDevice, adv: AdvertisementData | None) -> int:
+    """Prefer firmware-like advertisers (service UUID) over name-only matches."""
+    nm = _device_local_name(device, adv)
+    name_ok = bool(nm and nm.startswith(NAME_PREFIX))
+    svc_ok = _adv_has_tennis_service(adv)
+    rssi = adv.rssi if adv is not None else -999
+    if name_ok and svc_ok:
+        return 400 + rssi
+    if svc_ok:
+        return 300 + rssi
+    if name_ok:
+        return 200 + rssi
+    return 0
+
+
+def _best_tennis_from_adv_map(adv_map: dict[str, tuple[BLEDevice, AdvertisementData]]) -> BLEDevice | None:
+    best = None
+    best_rank = -10_000
+    for _addr, pair in adv_map.items():
+        d, adv = pair
+        r = _tennis_device_rank(d, adv)
+        if r > best_rank:
+            best_rank = r
+            best = d
+    return best
 
 
 def shot_color(speed: float) -> QColor:
@@ -405,6 +458,7 @@ class TennisBleWorker(QObject):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client: BleakClient | None = None
         self._target_address: str | None = None
+        self._pending_cmd_ack: asyncio.Future[str] | None = None
 
     def stop(self):
         self._running = False
@@ -444,11 +498,20 @@ class TennisBleWorker(QObject):
                 self.status.emit(f"Connecting to {device.name} ({device.address})")
                 self._client = BleakClient(device)
                 await self._client.connect()
-                self.connected.emit(True, device.address)
                 await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
                 await self._client.start_notify(RATE_X10_UUID, self._on_rate)
-                self.status.emit("Connected and streaming.")
+                await self._client.start_notify(COMMAND_UUID, self._on_command_notify)
+                ping_ok = await self._await_command_ack(
+                    STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
+                )
+                self.connected.emit(True, device.address)
+                if ping_ok:
+                    self.status.emit("Connected — health check OK (PONG). Live streaming.")
+                else:
+                    self.status.emit(
+                        "Connected — no PONG before timeout (flash newer firmware?). Live streaming."
+                    )
                 while self._running and self._client and self._client.is_connected:
                     await asyncio.sleep(0.2)
             except Exception as exc:
@@ -460,13 +523,35 @@ class TennisBleWorker(QObject):
                     await asyncio.sleep(1.0)
 
     async def _find_device(self):
-        devices = await BleakScanner.discover(timeout=4.0)
+        # 1) OS may filter to peripherals that advertise our service (fast on CoreBluetooth).
+        filtered = await BleakScanner.discover(
+            timeout=BLE_DISCOVER_TIMEOUT_S,
+            return_adv=True,
+            service_uuids=[TENNIS_SERVICE_UUID],
+        )
+        picked = _best_tennis_from_adv_map(filtered)
+        if picked:
+            return picked
+
+        # 2) Full passive scan: match local name OR advertised service UUID (name often None on macOS).
+        full = await BleakScanner.discover(timeout=BLE_DISCOVER_TIMEOUT_S, return_adv=True)
+        picked = _best_tennis_from_adv_map(full)
+        if picked:
+            return picked
+
+        # 3) Legacy path if the stack omits advertisement parsing.
+        devices = await BleakScanner.discover(timeout=BLE_DISCOVER_TIMEOUT_S)
         for d in devices:
-            if d.name and d.name.startswith(NAME_PREFIX):
+            nm = _device_local_name(d, None)
+            if nm and nm.startswith(NAME_PREFIX):
                 return d
         return None
 
     async def _disconnect(self):
+        pending = self._pending_cmd_ack
+        if pending and not pending.done():
+            pending.cancel()
+        self._pending_cmd_ack = None
         if self._client:
             try:
                 if self._client.is_connected:
@@ -475,14 +560,42 @@ class TennisBleWorker(QObject):
                 pass
         self._client = None
 
+    async def _await_command_ack(self, cmd: str, ack_needle: str, timeout_s: float) -> bool:
+        if not self._client or not self._client.is_connected:
+            return False
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        self._pending_cmd_ack = fut
+        try:
+            await self._client.write_gatt_char(COMMAND_UUID, cmd.encode("utf-8"), response=False)
+            payload = await asyncio.wait_for(fut, timeout=timeout_s)
+            return ack_needle.upper() in payload.upper()
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            return False
+        finally:
+            self._pending_cmd_ack = None
+
     async def _write_command(self, text: str):
         if not self._client or not self._client.is_connected:
             return
         try:
             await self._client.write_gatt_char(COMMAND_UUID, text.encode("utf-8"), response=False)
-            self.status.emit(f"Sent command: {text}")
+            if text != STREAM_KEEPALIVE_COMMAND:
+                self.status.emit(f"Sent command: {text}")
         except Exception as exc:
             self.status.emit(f"Command failed: {exc}")
+
+    def _on_command_notify(self, _sender, data: bytearray):
+        try:
+            s = bytes(data).decode("utf-8", errors="replace").strip()
+        except Exception:
+            s = ""
+        pending = self._pending_cmd_ack
+        if pending and not pending.done() and s:
+            try:
+                pending.set_result(s)
+            except asyncio.InvalidStateError:
+                pass
 
     def _on_state(self, _sender, data: bytearray):
         if len(data) >= 1:
@@ -699,7 +812,9 @@ class TennisDashboard(QMainWindow):
             bottom.addWidget(btn)
         outer.addLayout(bottom)
 
-        self.statusBar().showMessage("Simulation sensor active. Press CONNECT SENSOR for real BLE mode.")
+        self.statusBar().showMessage(
+            "Simulation active until a real TENNIS_KY003 sensor is found (auto-scan on) or you press CONNECT SENSOR."
+        )
 
         self.btn_connect.clicked.connect(self.start_worker)
         self.btn_disconnect.clicked.connect(self.stop_worker)
@@ -899,7 +1014,9 @@ class TennisDashboard(QMainWindow):
         self.sensors_chip.setText("SENSORS\nDISCONNECTED")
         self.sensors_chip.setObjectName("ChipErr")
         self.sensors_chip.style().polish(self.sensors_chip)
-        self.statusBar().showMessage("Simulation sensor active. Press CONNECT SENSOR for real BLE mode.")
+        self.statusBar().showMessage(
+            "Simulation active until a real TENNIS_KY003 sensor is found (auto-scan on) or you press CONNECT SENSOR."
+        )
 
     def _on_connected(self, ok: bool, addr: str):
         if ok:

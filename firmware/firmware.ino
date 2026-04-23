@@ -85,6 +85,7 @@ void loop() {
                 g_streamEnabled = true;
                 Logger::info("Live stream auto-armed by keepalive");
             }
+            bleHandler.notifyCommandAck("PONG");
         } else {
             Logger::warn("Unknown command: " + cmd);
         }

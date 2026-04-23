@@ -32,6 +32,9 @@ public:
 
     void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);
 
+    /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */
+    void notifyCommandAck(const char* utf8);
+
     void onDataReceived(const String& command);
     bool hasDeferredCommand() const;
     String takeDeferredCommand();

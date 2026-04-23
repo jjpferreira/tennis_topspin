@@ -39,10 +39,14 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
         assert f"#define {name}" in ble_constants
 
     assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);" in ble_handler_h
+    assert "void notifyCommandAck(const char* utf8);" in ble_handler_h
     assert "_stateChar->notify();" in ble_handler_cpp
     assert "_countChar->notify();" in ble_handler_cpp
     assert "_rateChar->notify();" in ble_handler_cpp
-    assert "BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR" in ble_handler_cpp
+    assert "TENNIS_COMMAND_UUID" in ble_handler_cpp
+    assert "BLECharacteristic::PROPERTY_NOTIFY" in ble_handler_cpp
+    assert "BLECharacteristic::PROPERTY_WRITE" in ble_handler_cpp
+    assert "void BLEHandler::notifyCommandAck(const char* utf8)" in ble_handler_cpp
 
 
 def test_tennis_streaming_is_explicitly_armed_and_keepalive_guarded():
@@ -59,6 +63,7 @@ def test_tennis_streaming_is_explicitly_armed_and_keepalive_guarded():
     assert 'else if (cmd == "STREAM:ON")' in sketch
     assert 'else if (cmd == "STREAM:OFF")' in sketch
     assert 'else if (cmd == "PING")' in sketch
+    assert 'bleHandler.notifyCommandAck("PONG")' in sketch
     assert "if (!bleHandler.isConnected()) {" in sketch
     assert "&& isStreamActive(now)" in sketch
 
