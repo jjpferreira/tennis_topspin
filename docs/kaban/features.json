@@ -426,6 +426,39 @@
     },
     {
       "id": "item-14",
+      "featureId": "FEAT-018",
+      "title": "FEAT-018: Student profiles and session-to-session comparison with performance stats",
+      "status": "IN-PROGRESS",
+      "priority": "HIGH",
+      "description": "Extend the simulator so coaches can load student profiles, save multiple sessions per student, and compare recent sessions using meaningful statistics (shots, speed, spin, consistency, and impact quality) to track progression and guide training decisions.",
+      "fullBody": "### [IN-PROGRESS] [HIGH] FEAT-018: Student profiles and session-to-session comparison with performance stats\n\n**Feature ID:** `FEAT-018` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-28 | **Last Updated:** 2026-04-28  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Extend the simulator so coaches can load student profiles, save multiple sessions per student, and compare recent sessions using meaningful statistics (shots, speed, spin, consistency, and impact quality) to track progression and guide training decisions.\n\n**Related:** FEAT-005 (dashboard UX), FEAT-008 (desktop app capabilities), FEAT-012 (session/log data handling), FEAT-016 (MVP evolution).\n\n---",
+      "businessValue": "",
+      "complexity": "HIGH",
+      "complexityScore": 3,
+      "businessValueScore": 5,
+      "relatedFeatures": [
+        {
+          "featureId": "FEAT-005",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-008",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-012",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-016",
+          "relation": "related"
+        }
+      ],
+      "lastUpdatedDate": "2026-04-28",
+      "addedDate": "2026-04-28"
+    },
+    {
+      "id": "item-15",
       "featureId": "FEAT-013",
       "title": "FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility",
       "status": "PLANNED",
@@ -462,7 +495,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-15",
+      "id": "item-16",
       "featureId": "FEAT-014",
       "title": "FEAT-014: Optional transport — BLE streaming to desktop or mobile bridge",
       "status": "IDEA",
@@ -491,7 +524,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-16",
+      "id": "item-17",
       "featureId": "FEAT-015",
       "title": "FEAT-015: Future mobile layer — iOS (or similar) consuming telemetry and court UI",
       "status": "IDEA",
@@ -520,7 +553,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-17",
+      "id": "item-18",
       "featureId": "FEAT-016",
       "title": "FEAT-016: MVP vertical — Hall + IMU, structured serial, live court, shot plotting, metrics",
       "status": "PLANNED",
@@ -565,7 +598,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-18",
+      "id": "item-19",
       "featureId": "FEAT-017",
       "title": "FEAT-017: ADXL335 impact telemetry and simulator impact visualization",
       "status": "COMPLETED",

@@ -172,6 +172,17 @@ ESP32:  Hall → RPM / ω          Arm sensor → angle / arm velocity
 
 ---
 
+### [IN-PROGRESS] [HIGH] FEAT-018: Student profiles and session-to-session comparison with performance stats
+
+**Feature ID:** `FEAT-018` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-28 | **Last Updated:** 2026-04-28  
+**Complexity:** High | **Business Value:** 5
+
+**Description:** Extend the simulator so coaches can load student profiles, save multiple sessions per student, and compare recent sessions using meaningful statistics (shots, speed, spin, consistency, and impact quality) to track progression and guide training decisions.
+
+**Related:** FEAT-005 (dashboard UX), FEAT-008 (desktop app capabilities), FEAT-012 (session/log data handling), FEAT-016 (MVP evolution).
+
+---
+
 ### [PLANNED] [MEDIUM] FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility
 
 **Feature ID:** `FEAT-013` | **Status:** `[PLANNED]` | **Priority:** `[MEDIUM]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  
