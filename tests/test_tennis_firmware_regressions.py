@@ -110,8 +110,12 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "#define ADXL335_Y_PIN" in config
     assert "#define ADXL335_Z_PIN" in config
     assert "#define ADXL335_IMPACT_SAMPLES" in config
+    assert "#define ADXL335_MIN_VALID_IMPACT_MG" in config
     assert "class ADXL335Sensor" in adxl_h
     assert "struct ImpactCalibration" in adxl_h
+    assert "uint16_t minValidImpactMg = 0;" in adxl_h
+    assert "uint16_t magnitudeMg = 0;" in adxl_h
+    assert "bool valid = false;" in adxl_h
     assert "void setCalibration(const ImpactCalibration& cfg);" in adxl_h
     assert "ImpactCalibration defaultCalibration();" in adxl_h
     assert "struct ImpactSample" in adxl_h
@@ -119,10 +123,18 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "void ADXL335Sensor::captureImpact(uint32_t nowMs)" in adxl_cpp
     assert "void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg)" in adxl_cpp
     assert "ImpactCalibration ADXL335Sensor::defaultCalibration()" in adxl_cpp
+    assert "cfg.minValidImpactMg = ADXL335_MIN_VALID_IMPACT_MG;" in adxl_cpp
+    assert "const bool validImpact = magMgClamped >= _calibration.minValidImpactMg;" in adxl_cpp
+    assert "_lastImpact.magnitudeMg = magMgClamped;" in adxl_cpp
+    assert "_lastImpact.valid = validImpact;" in adxl_cpp
     assert "class CalibrationStore" in cal_h
     assert "loadImpactCalibration" in cal_h
     assert "saveImpactCalibration" in cal_h
     assert "Preferences" in cal_cpp
+    assert "constexpr const char* kMinValidKey = \"imp_min\";" in cal_cpp
+    assert "constexpr uint8_t kImpactCalibrationVersion = 2;" in cal_cpp
+    assert "out.minValidImpactMg = prefs.getUShort(kMinValidKey, out.minValidImpactMg);" in cal_cpp
+    assert "prefs.putUShort(kMinValidKey, cfg.minValidImpactMg);" in cal_cpp
     assert "ADXL335Sensor impactSensor;" in sketch
     assert "ImpactCalibration g_impactCalibration" in sketch
     assert "CalibrationStore::loadImpactCalibration" in sketch
@@ -130,6 +142,8 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert 'else if (cmd == "CAL:SAVE")' in sketch
     assert 'else if (cmd == "CAL:RESET")' in sketch
     assert 'else if (cmd.startsWith("CAL:SET:"))' in sketch
+    assert "out += String(cfg.minValidImpactMg);" in sketch
+    assert "long minValidMg = out.minValidImpactMg > 0 ? out.minValidImpactMg : ADXL335_MIN_VALID_IMPACT_MG;" in sketch
     assert "impactSensor.captureImpact(now);" in sketch
     assert "bleHandler.pushImpact(" in sketch
 

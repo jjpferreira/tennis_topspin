@@ -8,7 +8,8 @@ constexpr const char* kVerKey = "imp_v";
 constexpr const char* kCountsKey = "imp_cpg";
 constexpr const char* kImpactKey = "imp_mg100";
 constexpr const char* kContactKey = "imp_full";
-constexpr uint8_t kImpactCalibrationVersion = 1;
+constexpr const char* kMinValidKey = "imp_min";
+constexpr uint8_t kImpactCalibrationVersion = 2;
 }  // namespace
 
 bool CalibrationStore::loadImpactCalibration(ImpactCalibration& out) {
@@ -17,7 +18,7 @@ bool CalibrationStore::loadImpactCalibration(ImpactCalibration& out) {
         return false;
     }
     const uint8_t ver = prefs.getUChar(kVerKey, 0);
-    if (ver != kImpactCalibrationVersion) {
+    if (ver != 1 && ver != kImpactCalibrationVersion) {
         prefs.end();
         return false;
     }
@@ -25,6 +26,9 @@ bool CalibrationStore::loadImpactCalibration(ImpactCalibration& out) {
     out.countsPerG = prefs.getFloat(kCountsKey, out.countsPerG);
     out.impactMgAt100 = prefs.getUShort(kImpactKey, out.impactMgAt100);
     out.contactFullScaleMg = prefs.getUShort(kContactKey, out.contactFullScaleMg);
+    if (ver >= kImpactCalibrationVersion) {
+        out.minValidImpactMg = prefs.getUShort(kMinValidKey, out.minValidImpactMg);
+    }
     prefs.end();
     return true;
 }
@@ -38,6 +42,7 @@ bool CalibrationStore::saveImpactCalibration(const ImpactCalibration& cfg) {
     prefs.putFloat(kCountsKey, cfg.countsPerG);
     prefs.putUShort(kImpactKey, cfg.impactMgAt100);
     prefs.putUShort(kContactKey, cfg.contactFullScaleMg);
+    prefs.putUShort(kMinValidKey, cfg.minValidImpactMg);
     prefs.end();
     return true;
 }

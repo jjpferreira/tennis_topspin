@@ -9,6 +9,7 @@ ImpactCalibration ADXL335Sensor::defaultCalibration() {
     cfg.countsPerG = ADXL335_COUNTS_PER_G;
     cfg.impactMgAt100 = ADXL335_IMPACT_MG_AT_100;
     cfg.contactFullScaleMg = ADXL335_CONTACT_FULL_SCALE_MG;
+    cfg.minValidImpactMg = ADXL335_MIN_VALID_IMPACT_MG;
     return cfg;
 }
 
@@ -17,6 +18,7 @@ void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg) {
     if (next.countsPerG < 50.0f) next.countsPerG = ADXL335_COUNTS_PER_G;
     if (next.impactMgAt100 < 100) next.impactMgAt100 = ADXL335_IMPACT_MG_AT_100;
     if (next.contactFullScaleMg < 100) next.contactFullScaleMg = ADXL335_CONTACT_FULL_SCALE_MG;
+    if (next.minValidImpactMg < 50) next.minValidImpactMg = ADXL335_MIN_VALID_IMPACT_MG;
     _calibration = next;
 }
 
@@ -94,21 +96,29 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
         static_cast<float>(yMg * yMg) +
         static_cast<float>(zMg * zMg)
     );
+    const uint16_t magMgClamped = static_cast<uint16_t>(constrain(static_cast<int>(magMg), 0, 65535));
+    const bool validImpact = magMgClamped >= _calibration.minValidImpactMg;
 
     int intensity = 0;
-    if (_calibration.impactMgAt100 > 0) {
+    if (validImpact && _calibration.impactMgAt100 > 0) {
         intensity = static_cast<int>(
             (magMg * 100.0f) / static_cast<float>(_calibration.impactMgAt100)
         );
     }
     intensity = constrain(intensity, 0, 100);
 
-    _lastImpact.xMg = xMg;
-    _lastImpact.yMg = yMg;
-    _lastImpact.zMg = zMg;
+    _lastImpact.xMg = validImpact ? xMg : 0;
+    _lastImpact.yMg = validImpact ? yMg : 0;
+    _lastImpact.zMg = validImpact ? zMg : 0;
+    _lastImpact.magnitudeMg = magMgClamped;
     _lastImpact.intensityPct = static_cast<uint8_t>(intensity);
-    _lastImpact.contactX = toContactCoord(xMg, static_cast<int16_t>(_calibration.contactFullScaleMg));
-    _lastImpact.contactY = toContactCoord(yMg, static_cast<int16_t>(_calibration.contactFullScaleMg));
+    _lastImpact.contactX = validImpact
+        ? toContactCoord(xMg, static_cast<int16_t>(_calibration.contactFullScaleMg))
+        : 0;
+    _lastImpact.contactY = validImpact
+        ? toContactCoord(yMg, static_cast<int16_t>(_calibration.contactFullScaleMg))
+        : 0;
+    _lastImpact.valid = validImpact;
     _lastImpact.capturedAtMs = nowMs;
 }
 

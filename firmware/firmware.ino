@@ -38,6 +38,8 @@ static String impactCalibrationToText(const ImpactCalibration& cfg) {
     out += String(cfg.impactMgAt100);
     out += ",";
     out += String(cfg.contactFullScaleMg);
+    out += ",";
+    out += String(cfg.minValidImpactMg);
     return out;
 }
 
@@ -47,16 +49,25 @@ static bool parseCalibrationSetCommand(const String& cmd, ImpactCalibration& out
     String body = cmd.substring(prefix.length());
     int c1 = body.indexOf(',');
     int c2 = body.indexOf(',', c1 + 1);
+    int c3 = body.indexOf(',', c2 + 1);
     if (c1 <= 0 || c2 <= c1 + 1) return false;
 
     float countsPerG = body.substring(0, c1).toFloat();
     long impactMg = body.substring(c1 + 1, c2).toInt();
-    long contactMg = body.substring(c2 + 1).toInt();
-    if (countsPerG < 50.0f || impactMg < 100 || contactMg < 100) return false;
+    long contactMg = 0;
+    long minValidMg = out.minValidImpactMg > 0 ? out.minValidImpactMg : ADXL335_MIN_VALID_IMPACT_MG;
+    if (c3 > c2 + 1) {
+        contactMg = body.substring(c2 + 1, c3).toInt();
+        minValidMg = body.substring(c3 + 1).toInt();
+    } else {
+        contactMg = body.substring(c2 + 1).toInt();
+    }
+    if (countsPerG < 50.0f || impactMg < 100 || contactMg < 100 || minValidMg < 50) return false;
 
     out.countsPerG = countsPerG;
     out.impactMgAt100 = static_cast<uint16_t>(impactMg);
     out.contactFullScaleMg = static_cast<uint16_t>(contactMg);
+    out.minValidImpactMg = static_cast<uint16_t>(minValidMg);
     return true;
 }
 

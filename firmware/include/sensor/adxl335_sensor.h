@@ -6,15 +6,18 @@ struct ImpactCalibration {
     float countsPerG = 0.0f;
     uint16_t impactMgAt100 = 0;
     uint16_t contactFullScaleMg = 0;
+    uint16_t minValidImpactMg = 0;
 };
 
 struct ImpactSample {
     int16_t xMg = 0;
     int16_t yMg = 0;
     int16_t zMg = 0;
+    uint16_t magnitudeMg = 0;
     uint8_t intensityPct = 0;
     int8_t contactX = 0;
     int8_t contactY = 0;
+    bool valid = false;
     uint32_t capturedAtMs = 0;
 };
 
