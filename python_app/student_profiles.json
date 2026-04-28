@@ -227,10 +227,87 @@
         "consistency": 72,
         "fast_pct": 35.85,
         "avg_impact_redness": 55.87
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-28T20:03:03",
+        "shot_count": 35,
+        "avg_speed": 58.03,
+        "avg_spin": 1865.83,
+        "consistency": 74,
+        "fast_pct": 11.43,
+        "avg_impact_redness": 55.49
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-28T20:11:25",
+        "shot_count": 40,
+        "avg_speed": 59.08,
+        "avg_spin": 1763.7,
+        "consistency": 72,
+        "fast_pct": 20.0,
+        "avg_impact_redness": 52.7
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Professional",
+        "started_at": "2026-04-28T20:17:24",
+        "shot_count": 300,
+        "avg_speed": 40.69,
+        "avg_spin": 939.79,
+        "consistency": 66,
+        "fast_pct": 2.33,
+        "avg_impact_redness": 30.84
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-28T20:25:48",
+        "shot_count": 14,
+        "avg_speed": 62.55,
+        "avg_spin": 2008.07,
+        "consistency": 61,
+        "fast_pct": 50.0,
+        "avg_impact_redness": 57.5
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-28T20:26:04",
+        "shot_count": 89,
+        "avg_speed": 38.51,
+        "avg_spin": 853.02,
+        "consistency": 65,
+        "fast_pct": 0.0,
+        "avg_impact_redness": 28.48
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-28T20:27:52",
+        "shot_count": 37,
+        "avg_speed": 42.4,
+        "avg_spin": 889.27,
+        "consistency": 66,
+        "fast_pct": 0.0,
+        "avg_impact_redness": 27.38
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-28T20:29:01",
+        "shot_count": 98,
+        "avg_speed": 38.84,
+        "avg_spin": 818.04,
+        "consistency": 67,
+        "fast_pct": 0.0,
+        "avg_impact_redness": 29.09
       }
     ]
   },
   "competition_levels": {
-    "Student 1": "Competitive"
+    "Student 1": "Newbie"
   }
 }
