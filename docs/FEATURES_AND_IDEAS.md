@@ -139,9 +139,9 @@ ESP32:  Hall → RPM / ω          Arm sensor → angle / arm velocity
 
 ---
 
-### [PLANNED] [HIGH] FEAT-010: Calibration — rotation, arm, and simulation tuning parameters
+### [IN-PROGRESS] [HIGH] FEAT-010: Calibration — rotation, arm, and simulation tuning parameters
 
-**Feature ID:** `FEAT-010` | **Status:** `[PLANNED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  
+**Feature ID:** `FEAT-010` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-28  
 **Complexity:** High | **Business Value:** 5
 
 **Description:** Meet **§9**: **Rotation** — pulses per revolution, magnet alignment, debounce thresholds; **Arm** — zero/home, strike reference, motion scaling, IMU baseline if used; **Simulation** — court scaling, speed-to-color mapping, depth and lateral spread coefficients. Calibration values configurable, not buried (**§13.4**).

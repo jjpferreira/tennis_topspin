@@ -14,6 +14,8 @@ SENSOR_H = TENNIS_FW_ROOT / "include" / "sensor" / "ky003_sensor.h"
 SENSOR_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "ky003_sensor.cpp"
 ADXL_H = TENNIS_FW_ROOT / "include" / "sensor" / "adxl335_sensor.h"
 ADXL_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "adxl335_sensor.cpp"
+CAL_STORE_H = TENNIS_FW_ROOT / "include" / "calibration_store.h"
+CAL_STORE_CPP = TENNIS_FW_ROOT / "src" / "calibration_store.cpp"
 SKETCH = TENNIS_FW_ROOT / "firmware.ino"
 
 
@@ -99,6 +101,8 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
 def test_tennis_impact_sensor_module_is_wired_and_configured():
     adxl_h = read_text(ADXL_H)
     adxl_cpp = read_text(ADXL_CPP)
+    cal_h = read_text(CAL_STORE_H)
+    cal_cpp = read_text(CAL_STORE_CPP)
     sketch = read_text(SKETCH)
     config = read_text(CONFIG_H)
 
@@ -107,10 +111,25 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "#define ADXL335_Z_PIN" in config
     assert "#define ADXL335_IMPACT_SAMPLES" in config
     assert "class ADXL335Sensor" in adxl_h
+    assert "struct ImpactCalibration" in adxl_h
+    assert "void setCalibration(const ImpactCalibration& cfg);" in adxl_h
+    assert "ImpactCalibration defaultCalibration();" in adxl_h
     assert "struct ImpactSample" in adxl_h
     assert "void captureImpact(uint32_t nowMs);" in adxl_h
     assert "void ADXL335Sensor::captureImpact(uint32_t nowMs)" in adxl_cpp
+    assert "void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg)" in adxl_cpp
+    assert "ImpactCalibration ADXL335Sensor::defaultCalibration()" in adxl_cpp
+    assert "class CalibrationStore" in cal_h
+    assert "loadImpactCalibration" in cal_h
+    assert "saveImpactCalibration" in cal_h
+    assert "Preferences" in cal_cpp
     assert "ADXL335Sensor impactSensor;" in sketch
+    assert "ImpactCalibration g_impactCalibration" in sketch
+    assert "CalibrationStore::loadImpactCalibration" in sketch
+    assert 'else if (cmd == "CAL:GET")' in sketch
+    assert 'else if (cmd == "CAL:SAVE")' in sketch
+    assert 'else if (cmd == "CAL:RESET")' in sketch
+    assert 'else if (cmd.startsWith("CAL:SET:"))' in sketch
     assert "impactSensor.captureImpact(now);" in sketch
     assert "bleHandler.pushImpact(" in sketch
 

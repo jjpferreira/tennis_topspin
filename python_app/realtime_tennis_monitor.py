@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import json
 import math
 import random
 import struct
@@ -18,6 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
@@ -26,10 +28,14 @@ from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, QThread, QTimer, pyqtSign
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
+    QLineEdit,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -57,6 +63,100 @@ PING_HEALTH_TIMEOUT_S = 2.5
 PING_ACK_SUBSTRING = "PONG"
 LIVE_STREAM_STALE_TIMEOUT_S = 3.5
 LIVE_STREAM_RECOVERY_COOLDOWN_S = 4.0
+PROFILE_STORE_FILE = "student_profiles.json"
+MAX_SESSIONS_PER_STUDENT = 40
+CAL_GET_COMMAND = "CAL:GET"
+CAL_SAVE_COMMAND = "CAL:SAVE"
+CAL_RESET_COMMAND = "CAL:RESET"
+
+# Competition levels from beginner to pro
+COMPETITION_PROFILES: dict[str, dict[str, float]] = {
+    "Newbie": {
+        "target_speed": 40.0,
+        "target_spin": 900.0,
+        "target_consistency": 48.0,
+        "target_fast_pct": 12.0,
+        "target_impact": 32.0,
+        "sim_speed_min": 24.0,
+        "sim_speed_max": 56.0,
+        "sim_spin_min": 350.0,
+        "sim_spin_max": 1400.0,
+        "sim_land_sigma_x": 1.65,
+        "sim_land_sigma_y": 2.0,
+        "sim_land_center_y": 6.8,
+        "sim_red_min": 14.0,
+        "sim_red_max": 46.0,
+        "sim_impact_abs": 58.0,
+        "live_speed_min": 24.0,
+        "live_speed_max": 68.0,
+        "live_speed_base": 22.0,
+        "live_rate_mul": 3.1,
+        "live_red_mul": 0.08,
+        "live_spin_min": 400.0,
+        "live_spin_max": 1800.0,
+        "live_spin_base": 450.0,
+        "live_spin_rate_mul": 88.0,
+        "live_spin_impact_mul": 8.0,
+        "live_arm_abs": 45.0,
+    },
+    "Competitive": {
+        "target_speed": 59.0,
+        "target_spin": 1850.0,
+        "target_consistency": 67.0,
+        "target_fast_pct": 36.0,
+        "target_impact": 52.0,
+        "sim_speed_min": 44.0,
+        "sim_speed_max": 78.0,
+        "sim_spin_min": 900.0,
+        "sim_spin_max": 2600.0,
+        "sim_land_sigma_x": 1.25,
+        "sim_land_sigma_y": 1.55,
+        "sim_land_center_y": 7.2,
+        "sim_red_min": 34.0,
+        "sim_red_max": 72.0,
+        "sim_impact_abs": 44.0,
+        "live_speed_min": 38.0,
+        "live_speed_max": 86.0,
+        "live_speed_base": 33.0,
+        "live_rate_mul": 3.9,
+        "live_red_mul": 0.12,
+        "live_spin_min": 850.0,
+        "live_spin_max": 3000.0,
+        "live_spin_base": 850.0,
+        "live_spin_rate_mul": 112.0,
+        "live_spin_impact_mul": 10.0,
+        "live_arm_abs": 41.0,
+    },
+    "Professional": {
+        "target_speed": 74.0,
+        "target_spin": 2450.0,
+        "target_consistency": 82.0,
+        "target_fast_pct": 62.0,
+        "target_impact": 68.0,
+        "sim_speed_min": 58.0,
+        "sim_speed_max": 88.0,
+        "sim_spin_min": 1650.0,
+        "sim_spin_max": 3250.0,
+        "sim_land_sigma_x": 0.95,
+        "sim_land_sigma_y": 1.2,
+        "sim_land_center_y": 7.8,
+        "sim_red_min": 52.0,
+        "sim_red_max": 86.0,
+        "sim_impact_abs": 32.0,
+        "live_speed_min": 46.0,
+        "live_speed_max": 96.0,
+        "live_speed_base": 44.0,
+        "live_rate_mul": 4.7,
+        "live_red_mul": 0.16,
+        "live_spin_min": 1200.0,
+        "live_spin_max": 3600.0,
+        "live_spin_base": 1320.0,
+        "live_spin_rate_mul": 138.0,
+        "live_spin_impact_mul": 12.0,
+        "live_arm_abs": 38.0,
+    },
+}
+DEFAULT_COMPETITION_LEVEL = "Competitive"
 
 
 def _norm_uuid(u: str) -> str:
@@ -135,6 +235,18 @@ class Shot:
     impact_x: int = 0
     impact_y: int = 0
     impact_redness: int = 0
+
+
+@dataclass
+class SessionSummary:
+    student: str
+    started_at: str
+    shot_count: int
+    avg_speed: float
+    avg_spin: float
+    consistency: int
+    fast_pct: float
+    avg_impact_redness: float
 
 
 class MetricSlider(QWidget):
@@ -528,10 +640,362 @@ class TennisBallImpactWidget(QWidget):
         p.drawText(10, self.height() - 10, f"Impact {self.impact_x:+d}, {self.impact_y:+d} | Redness {self.impact_redness:d}%")
 
 
+class StatsBIWindow(QWidget):
+    def __init__(self, dashboard: "TennisDashboard"):
+        super().__init__()
+        self.dashboard = dashboard
+        self.setWindowTitle("Tennis Stats BI")
+        self.resize(980, 620)
+        self._profile_switching = False
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+
+        row = QHBoxLayout()
+        self.profile_combo = QComboBox()
+        self.profile_combo.setMinimumWidth(220)
+        self.level_combo = QComboBox()
+        self.level_combo.setMinimumWidth(160)
+        self.level_combo.addItems(list(COMPETITION_PROFILES.keys()))
+        self.btn_new_profile = QPushButton("NEW STUDENT")
+        self.btn_save_session = QPushButton("SAVE SESSION")
+        self.btn_compare = QPushButton("COMPARE LAST 2")
+        row.addWidget(QLabel("Student Profile"))
+        row.addWidget(self.profile_combo, 1)
+        row.addWidget(QLabel("Competition Level"))
+        row.addWidget(self.level_combo, 0)
+        row.addWidget(self.btn_new_profile)
+        row.addWidget(self.btn_save_session)
+        row.addWidget(self.btn_compare)
+        root.addLayout(row)
+
+        self.lbl_profile_meta = QLabel("Profile: -")
+        self.lbl_profile_meta.setObjectName("SmallMuted")
+        root.addWidget(self.lbl_profile_meta)
+
+        self.lbl_snapshot = QLabel("Current session snapshot: 0 shots")
+        self.lbl_snapshot.setObjectName("SmallMuted")
+        root.addWidget(self.lbl_snapshot)
+
+        elite_box = QFrame()
+        elite_box.setObjectName("Panel")
+        elite_lay = QVBoxLayout(elite_box)
+        elite_lay.setContentsMargins(10, 8, 10, 8)
+        elite_lay.setSpacing(4)
+        elite_lay.addWidget(QLabel("TOP QUALITY ALIGNMENT"))
+        self.lbl_elite_score = QLabel("Alignment score: 0%")
+        self.lbl_elite_score.setObjectName("SmallMuted")
+        self.lbl_elite_speed = QLabel("Speed vs target: 0.0 / 0.0 mph")
+        self.lbl_elite_spin = QLabel("Spin vs target: 0 / 0 rpm")
+        self.lbl_elite_cons = QLabel("Consistency vs target: 0 / 0%")
+        self.lbl_elite_fast = QLabel("Fast shots vs target: 0 / 0%")
+        self.lbl_elite_impact = QLabel("Impact quality vs target: 0 / 0%")
+        for lbl in (
+            self.lbl_elite_speed,
+            self.lbl_elite_spin,
+            self.lbl_elite_cons,
+            self.lbl_elite_fast,
+            self.lbl_elite_impact,
+        ):
+            lbl.setObjectName("SmallMuted")
+        elite_lay.addWidget(self.lbl_elite_score)
+        elite_lay.addWidget(self.lbl_elite_speed)
+        elite_lay.addWidget(self.lbl_elite_spin)
+        elite_lay.addWidget(self.lbl_elite_cons)
+        elite_lay.addWidget(self.lbl_elite_fast)
+        elite_lay.addWidget(self.lbl_elite_impact)
+        root.addWidget(elite_box)
+
+        comp_box = QFrame()
+        comp_box.setObjectName("Panel")
+        comp_lay = QVBoxLayout(comp_box)
+        comp_lay.setContentsMargins(10, 8, 10, 8)
+        comp_lay.setSpacing(4)
+        self.lbl_compare_header = QLabel("Save at least 2 sessions to compare.")
+        self.lbl_compare_header.setObjectName("SmallMuted")
+        self.lbl_compare_speed = QLabel("Avg speed Δ   +0.0 mph")
+        self.lbl_compare_spin = QLabel("Avg spin Δ    +0 rpm")
+        self.lbl_compare_cons = QLabel("Consistency Δ +0%")
+        self.lbl_compare_impact = QLabel("Impact Δ      +0.0%")
+        for lbl in (self.lbl_compare_speed, self.lbl_compare_spin, self.lbl_compare_cons, self.lbl_compare_impact):
+            lbl.setObjectName("SmallMuted")
+            comp_lay.addWidget(lbl)
+        comp_lay.insertWidget(0, self.lbl_compare_header)
+        root.addWidget(comp_box)
+
+        self.sessions_table = QTableWidget(0, 7)
+        self.sessions_table.setHorizontalHeaderLabels(
+            ["STARTED", "SHOTS", "AVG SPEED", "AVG SPIN", "CONSISTENCY", "FAST %", "IMPACT %"]
+        )
+        self.sessions_table.verticalHeader().setVisible(False)
+        self.sessions_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.sessions_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.sessions_table.horizontalHeader().setStretchLastSection(True)
+        root.addWidget(self.sessions_table, 1)
+
+        self.profile_combo.currentTextChanged.connect(self._on_profile_changed)
+        self.level_combo.currentTextChanged.connect(self._on_level_changed)
+        self.btn_new_profile.clicked.connect(self.dashboard._create_profile)
+        self.btn_save_session.clicked.connect(self.dashboard._save_current_session)
+        self.btn_compare.clicked.connect(self.dashboard._refresh_comparison_labels)
+
+    def _on_profile_changed(self, name: str):
+        if self._profile_switching:
+            return
+        self.dashboard._on_profile_selected(name)
+
+    def _on_level_changed(self, level: str):
+        if self._profile_switching or not level:
+            return
+        self.dashboard._set_competition_level(level)
+
+    def refresh(self):
+        names = sorted(self.dashboard._profiles.keys())
+        self._profile_switching = True
+        self.profile_combo.clear()
+        self.profile_combo.addItems(names)
+        self.profile_combo.setCurrentText(self.dashboard._current_student)
+        self.level_combo.setCurrentText(self.dashboard._competition_level)
+        self._profile_switching = False
+
+        sessions = self.dashboard._profiles.get(self.dashboard._current_student, [])
+        self.lbl_profile_meta.setText(
+            f"Profile: {self.dashboard._current_student} | Sessions saved: {len(sessions)}"
+        )
+
+        current_summary = self.dashboard._session_metrics_from_shots(self.dashboard.shots)
+        self.lbl_snapshot.setText(
+            "Current session snapshot: "
+            f"{current_summary.shot_count} shots | avg {current_summary.avg_speed:.1f} mph | "
+            f"spin {current_summary.avg_spin:.0f} rpm | consistency {current_summary.consistency}%"
+        )
+        elite = self.dashboard._elite_alignment_for_summary(current_summary)
+        profile = self.dashboard._current_competition_profile()
+        self.lbl_elite_score.setText(f"Alignment score ({self.dashboard._competition_level}): {elite['score']:.0f}%")
+        self.lbl_elite_speed.setText(
+            f"Speed vs target: {current_summary.avg_speed:.1f} / {profile['target_speed']:.1f} mph"
+        )
+        self.lbl_elite_spin.setText(
+            f"Spin vs target: {current_summary.avg_spin:.0f} / {profile['target_spin']:.0f} rpm"
+        )
+        self.lbl_elite_cons.setText(
+            f"Consistency vs target: {current_summary.consistency:.0f} / {profile['target_consistency']:.0f}%"
+        )
+        self.lbl_elite_fast.setText(
+            f"Fast shots vs target: {current_summary.fast_pct:.1f} / {profile['target_fast_pct']:.0f}%"
+        )
+        self.lbl_elite_impact.setText(
+            f"Impact quality vs target: {current_summary.avg_impact_redness:.1f} / {profile['target_impact']:.0f}%"
+        )
+
+        header, d_speed, d_spin, d_cons, d_imp = self.dashboard._comparison_strings()
+        self.lbl_compare_header.setText(header)
+        self.lbl_compare_speed.setText(d_speed)
+        self.lbl_compare_spin.setText(d_spin)
+        self.lbl_compare_cons.setText(d_cons)
+        self.lbl_compare_impact.setText(d_imp)
+
+        rows = list(reversed(sessions[-24:]))
+        self.sessions_table.setRowCount(len(rows))
+        for r, s in enumerate(rows):
+            vals = [
+                str(s.get("started_at", "-")),
+                str(s.get("shot_count", 0)),
+                f"{float(s.get('avg_speed', 0.0)):.1f} mph",
+                f"{float(s.get('avg_spin', 0.0)):.0f} rpm",
+                f"{float(s.get('consistency', 0.0)):.0f}%",
+                f"{float(s.get('fast_pct', 0.0)):.1f}%",
+                f"{float(s.get('avg_impact_redness', 0.0)):.1f}%",
+            ]
+            for c, v in enumerate(vals):
+                self.sessions_table.setItem(r, c, QTableWidgetItem(v))
+
+class SettingsWindow(QWidget):
+    def __init__(self, dashboard: "TennisDashboard"):
+        super().__init__()
+        self.dashboard = dashboard
+        self.setWindowTitle("Tennis Settings")
+        self.resize(760, 520)
+        self._capture_mode: str | None = None
+        self._capture_target = 8
+        self._soft_samples: list[dict] = []
+        self._hard_samples: list[dict] = []
+        self._suggested_impact_mg_100: int | None = None
+        self._suggested_contact_full_scale_mg: int | None = None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+
+        cal_box = QFrame()
+        cal_box.setObjectName("Panel")
+        cal_lay = QVBoxLayout(cal_box)
+        cal_lay.setContentsMargins(10, 8, 10, 8)
+        cal_lay.setSpacing(6)
+        cal_lay.addWidget(QLabel("IMPACT CALIBRATION (FIRMWARE)"))
+        cal_grid = QGridLayout()
+        cal_grid.setHorizontalSpacing(8)
+        cal_grid.setVerticalSpacing(4)
+        self.cal_counts_input = QLineEdit("410.0")
+        self.cal_impact_input = QLineEdit("4200")
+        self.cal_contact_input = QLineEdit("1500")
+        cal_grid.addWidget(QLabel("Counts per G"), 0, 0)
+        cal_grid.addWidget(self.cal_counts_input, 0, 1)
+        cal_grid.addWidget(QLabel("mg @ 100%"), 1, 0)
+        cal_grid.addWidget(self.cal_impact_input, 1, 1)
+        cal_grid.addWidget(QLabel("contact full-scale mg"), 2, 0)
+        cal_grid.addWidget(self.cal_contact_input, 2, 1)
+        cal_lay.addLayout(cal_grid)
+        cal_btns = QHBoxLayout()
+        self.btn_cal_load = QPushButton("LOAD FW")
+        self.btn_cal_apply = QPushButton("APPLY RAM")
+        self.btn_cal_save = QPushButton("SAVE TO FW")
+        self.btn_cal_reset = QPushButton("RESET DEFAULTS")
+        cal_btns.addWidget(self.btn_cal_load)
+        cal_btns.addWidget(self.btn_cal_apply)
+        cal_btns.addWidget(self.btn_cal_save)
+        cal_btns.addWidget(self.btn_cal_reset)
+        cal_lay.addLayout(cal_btns)
+        self.lbl_cal_status = QLabel("Calibration ready.")
+        self.lbl_cal_status.setObjectName("SmallMuted")
+        cal_lay.addWidget(self.lbl_cal_status)
+        root.addWidget(cal_box)
+
+        wiz_box = QFrame()
+        wiz_box.setObjectName("Panel")
+        wiz_lay = QVBoxLayout(wiz_box)
+        wiz_lay.setContentsMargins(10, 8, 10, 8)
+        wiz_lay.setSpacing(6)
+        wiz_lay.addWidget(QLabel("CALIBRATION WIZARD (GUIDED)"))
+        self.lbl_wizard_help = QLabel(
+            "1) Capture soft hits, 2) capture hard hits, 3) apply suggested values."
+        )
+        self.lbl_wizard_help.setObjectName("SmallMuted")
+        wiz_lay.addWidget(self.lbl_wizard_help)
+        wiz_btns = QHBoxLayout()
+        self.btn_wiz_soft = QPushButton("1) CAPTURE SOFT")
+        self.btn_wiz_hard = QPushButton("2) CAPTURE HARD")
+        self.btn_wiz_apply = QPushButton("3) APPLY SUGGESTED")
+        wiz_btns.addWidget(self.btn_wiz_soft)
+        wiz_btns.addWidget(self.btn_wiz_hard)
+        wiz_btns.addWidget(self.btn_wiz_apply)
+        wiz_lay.addLayout(wiz_btns)
+        self.lbl_wiz_status = QLabel("Wizard idle.")
+        self.lbl_wiz_status.setObjectName("SmallMuted")
+        self.lbl_wiz_soft = QLabel("Soft set: not captured")
+        self.lbl_wiz_soft.setObjectName("SmallMuted")
+        self.lbl_wiz_hard = QLabel("Hard set: not captured")
+        self.lbl_wiz_hard.setObjectName("SmallMuted")
+        self.lbl_wiz_suggest = QLabel("Suggested: pending")
+        self.lbl_wiz_suggest.setObjectName("SmallMuted")
+        wiz_lay.addWidget(self.lbl_wiz_status)
+        wiz_lay.addWidget(self.lbl_wiz_soft)
+        wiz_lay.addWidget(self.lbl_wiz_hard)
+        wiz_lay.addWidget(self.lbl_wiz_suggest)
+        root.addWidget(wiz_box)
+
+        self.btn_cal_load.clicked.connect(self.dashboard._request_firmware_calibration)
+        self.btn_cal_apply.clicked.connect(self._apply_calibration_from_inputs)
+        self.btn_cal_save.clicked.connect(self.dashboard._save_firmware_calibration)
+        self.btn_cal_reset.clicked.connect(self.dashboard._reset_firmware_calibration)
+        self.btn_wiz_soft.clicked.connect(lambda: self._start_capture("soft"))
+        self.btn_wiz_hard.clicked.connect(lambda: self._start_capture("hard"))
+        self.btn_wiz_apply.clicked.connect(self._apply_suggested)
+
+    def _apply_calibration_from_inputs(self):
+        self.dashboard._apply_firmware_calibration_from_ui(
+            self.cal_counts_input.text(),
+            self.cal_impact_input.text(),
+            self.cal_contact_input.text(),
+        )
+
+    def set_calibration_values(self, counts_per_g: float, impact_mg_100: int, contact_full_scale_mg: int):
+        self.cal_counts_input.setText(f"{counts_per_g:.2f}")
+        self.cal_impact_input.setText(str(int(impact_mg_100)))
+        self.cal_contact_input.setText(str(int(contact_full_scale_mg)))
+
+    def set_calibration_status(self, text: str):
+        self.lbl_cal_status.setText(text)
+
+    def _start_capture(self, mode: str):
+        if mode == "soft":
+            self._soft_samples = []
+            self.lbl_wiz_soft.setText("Soft set: capturing...")
+            self.lbl_wiz_status.setText(f"Capture {self._capture_target} soft hits now.")
+        else:
+            self._hard_samples = []
+            self.lbl_wiz_hard.setText("Hard set: capturing...")
+            self.lbl_wiz_status.setText(f"Capture {self._capture_target} hard hits now.")
+        self._capture_mode = mode
+
+    @staticmethod
+    def _mag(e: dict) -> float:
+        return float(e.get("mag_mg", 0.0))
+
+    @staticmethod
+    def _p90(values: list[float]) -> float:
+        if not values:
+            return 0.0
+        sv = sorted(values)
+        idx = min(len(sv) - 1, max(0, int(round((len(sv) - 1) * 0.9))))
+        return sv[idx]
+
+    def _update_wizard_summary(self):
+        if self._soft_samples:
+            soft_mag = sum(self._mag(x) for x in self._soft_samples) / len(self._soft_samples)
+            self.lbl_wiz_soft.setText(f"Soft set: {len(self._soft_samples)} hits | avg mag {soft_mag:.0f} mg")
+        if self._hard_samples:
+            hard_mag = sum(self._mag(x) for x in self._hard_samples) / len(self._hard_samples)
+            self.lbl_wiz_hard.setText(f"Hard set: {len(self._hard_samples)} hits | avg mag {hard_mag:.0f} mg")
+
+        if self._soft_samples and self._hard_samples:
+            hard_p90 = self._p90([self._mag(x) for x in self._hard_samples])
+            lateral_pool = [
+                max(abs(float(e.get("x_mg", 0.0))), abs(float(e.get("y_mg", 0.0))))
+                for e in (self._soft_samples + self._hard_samples)
+            ]
+            lateral_p90 = self._p90(lateral_pool)
+            self._suggested_impact_mg_100 = int(max(600, hard_p90 / 0.95))
+            self._suggested_contact_full_scale_mg = int(max(250, lateral_p90 * 1.15))
+            self.lbl_wiz_suggest.setText(
+                "Suggested: "
+                f"mg@100={self._suggested_impact_mg_100}, "
+                f"contact={self._suggested_contact_full_scale_mg}"
+            )
+
+    def on_impact_event(self, event: dict):
+        if self._capture_mode is None:
+            return
+        target = self._soft_samples if self._capture_mode == "soft" else self._hard_samples
+        if len(target) >= self._capture_target:
+            return
+        target.append(event)
+        remaining = self._capture_target - len(target)
+        if remaining > 0:
+            self.lbl_wiz_status.setText(
+                f"{self._capture_mode.title()} capture: {remaining} hit(s) remaining..."
+            )
+            return
+        self.lbl_wiz_status.setText(f"{self._capture_mode.title()} capture complete.")
+        self._capture_mode = None
+        self._update_wizard_summary()
+
+    def _apply_suggested(self):
+        if self._suggested_impact_mg_100 is None or self._suggested_contact_full_scale_mg is None:
+            self.lbl_wiz_status.setText("Capture soft + hard sets first.")
+            return
+        self.cal_impact_input.setText(str(self._suggested_impact_mg_100))
+        self.cal_contact_input.setText(str(self._suggested_contact_full_scale_mg))
+        self._apply_calibration_from_inputs()
+        self.lbl_wiz_status.setText("Applied suggested calibration to firmware RAM.")
+
+
 class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int)
     impact = pyqtSignal(int, int, int, int, int, int, int)
+    command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
 
@@ -675,6 +1139,8 @@ class TennisBleWorker(QObject):
             s = bytes(data).decode("utf-8", errors="replace").strip()
         except Exception:
             s = ""
+        if s:
+            self.command_rx.emit(s)
         pending = self._pending_cmd_ack
         if pending and not pending.done() and s:
             try:
@@ -719,9 +1185,26 @@ class TennisDashboard(QMainWindow):
         self._last_stream_recovery = 0.0
         self._impact_by_hit_count: dict[int, tuple[int, int, int]] = {}
         self._last_impact_reading = (0, 0, 0)
+        self._profile_store_path = Path(__file__).resolve().with_name(PROFILE_STORE_FILE)
+        self._profiles: dict[str, list[dict]] = {}
+        self._competition_levels_by_student: dict[str, str] = {}
+        self._current_student = "Student 1"
+        self._competition_level = DEFAULT_COMPETITION_LEVEL
+        self._session_started_at = datetime.now().isoformat(timespec="seconds")
+        self._active_session_saved = False
+        self._stats_window: StatsBIWindow | None = None
+        self._settings_window: SettingsWindow | None = None
+        self._fw_calibration = {
+            "counts_per_g": 410.0,
+            "impact_mg_100": 4200,
+            "contact_full_scale_mg": 1500,
+        }
 
         self._build_ui()
         self._apply_style()
+        self._load_profiles()
+        self._refresh_profile_ui()
+        self._refresh_comparison_labels()
 
         self.sim_timer = QTimer(self)
         self.sim_timer.timeout.connect(self._simulation_tick)
@@ -771,6 +1254,36 @@ class TennisDashboard(QMainWindow):
         title_col.addWidget(self.subtitle)
         hh.addLayout(title_col)
         hh.addStretch(1)
+
+        level_wrap = QFrame()
+        level_wrap.setObjectName("LevelWrap")
+        level_lay = QVBoxLayout(level_wrap)
+        level_lay.setContentsMargins(0, 0, 0, 0)
+        level_lay.setSpacing(2)
+        lvl_lbl = QLabel("LEVEL")
+        lvl_lbl.setObjectName("SmallMuted")
+        level_lay.addWidget(lvl_lbl)
+        level_row = QHBoxLayout()
+        level_row.setContentsMargins(0, 0, 0, 0)
+        level_row.setSpacing(4)
+        self._level_button_group = QButtonGroup(self)
+        self._level_button_group.setExclusive(True)
+        self._level_buttons: dict[str, QPushButton] = {}
+        for level, txt in (
+            ("Newbie", "NEWBIE"),
+            ("Competitive", "COMPETITIVE"),
+            ("Professional", "PRO"),
+        ):
+            b = QPushButton(txt)
+            b.setObjectName("LevelBtn")
+            b.setCheckable(True)
+            b.setMinimumWidth(84 if level == "Competitive" else 68)
+            b.clicked.connect(lambda checked, lv=level: self._on_main_level_toggle(checked, lv))
+            self._level_button_group.addButton(b)
+            self._level_buttons[level] = b
+            level_row.addWidget(b)
+        level_lay.addLayout(level_row)
+        hh.addWidget(level_wrap)
 
         self.mode_chip = QLabel("MODE\nSIMULATION")
         self.mode_chip.setObjectName("ChipOk")
@@ -859,10 +1372,18 @@ class TennisDashboard(QMainWindow):
         # top-right utility icons in panel header area
         icons = QHBoxLayout()
         icons.addStretch(1)
-        for glyph in ("⌖", "◉", "⛶"):
+        icon_specs = [
+            ("📊", "Open Students & Stats", self._open_stats_screen),
+            ("⚙", "Open Settings (Calibration)", self._open_settings_screen),
+            ("⤢", "Fullscreen view (coming soon)", None),
+        ]
+        for glyph, tooltip, callback in icon_specs:
             b = QPushButton(glyph)
             b.setObjectName("IconBtn")
-            b.setFixedSize(26, 22)
+            b.setFixedSize(30, 22)
+            b.setToolTip(tooltip)
+            if callback is not None:
+                b.clicked.connect(callback)
             icons.addWidget(b)
         self.court_panel.layout().addLayout(icons)
         self.court_widget = CourtWidget()
@@ -971,6 +1492,344 @@ class TennisDashboard(QMainWindow):
         box._value_label = v  # type: ignore[attr-defined]
         return box
 
+    def _load_profiles(self):
+        if not self._profile_store_path.exists():
+            self._profiles = {self._current_student: []}
+            self._competition_levels_by_student = {self._current_student: DEFAULT_COMPETITION_LEVEL}
+            self._save_profiles()
+            return
+        try:
+            payload = json.loads(self._profile_store_path.read_text(encoding="utf-8"))
+            raw_profiles = payload.get("profiles", {})
+            raw_levels = payload.get("competition_levels", {})
+            if isinstance(raw_profiles, dict):
+                clean_profiles: dict[str, list[dict]] = {}
+                for name, sessions in raw_profiles.items():
+                    if not isinstance(name, str):
+                        continue
+                    if not isinstance(sessions, list):
+                        continue
+                    clean_profiles[name] = [s for s in sessions if isinstance(s, dict)]
+                self._profiles = clean_profiles or {self._current_student: []}
+            else:
+                self._profiles = {self._current_student: []}
+            if isinstance(raw_levels, dict):
+                levels: dict[str, str] = {}
+                for k, v in raw_levels.items():
+                    if isinstance(k, str) and isinstance(v, str) and v in COMPETITION_PROFILES:
+                        levels[k] = v
+                self._competition_levels_by_student = levels
+            else:
+                self._competition_levels_by_student = {}
+        except (OSError, json.JSONDecodeError):
+            self._profiles = {self._current_student: []}
+            self._competition_levels_by_student = {}
+        if self._current_student not in self._profiles:
+            self._current_student = sorted(self._profiles.keys())[0]
+        for name in self._profiles:
+            if name not in self._competition_levels_by_student:
+                self._competition_levels_by_student[name] = DEFAULT_COMPETITION_LEVEL
+        self._competition_level = self._competition_levels_by_student.get(
+            self._current_student, DEFAULT_COMPETITION_LEVEL
+        )
+
+    def _save_profiles(self):
+        payload = {
+            "profiles": self._profiles,
+            "competition_levels": self._competition_levels_by_student,
+        }
+        self._profile_store_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _refresh_profile_ui(self):
+        names = sorted(self._profiles.keys())
+        if not names:
+            self._profiles[self._current_student] = []
+            names = [self._current_student]
+        if self._current_student not in self._profiles:
+            self._current_student = names[0]
+        for n in names:
+            if n not in self._competition_levels_by_student:
+                self._competition_levels_by_student[n] = DEFAULT_COMPETITION_LEVEL
+        self._competition_level = self._competition_levels_by_student.get(
+            self._current_student, DEFAULT_COMPETITION_LEVEL
+        )
+        self._refresh_competition_toggle()
+        if self._stats_window is not None:
+            self._stats_window.refresh()
+
+    def _refresh_competition_toggle(self):
+        if not hasattr(self, "_level_buttons"):
+            return
+        for level, btn in self._level_buttons.items():
+            btn.blockSignals(True)
+            btn.setChecked(level == self._competition_level)
+            btn.blockSignals(False)
+
+    def _on_main_level_toggle(self, checked: bool, level: str):
+        if checked:
+            self._set_competition_level(level)
+
+    def _on_profile_selected(self, name: str):
+        if not name:
+            return
+        if name != self._current_student and self.shots and not self._active_session_saved:
+            self._save_current_session()
+        self._current_student = name
+        self._competition_level = self._competition_levels_by_student.get(
+            self._current_student, DEFAULT_COMPETITION_LEVEL
+        )
+        self._refresh_profile_ui()
+        self._refresh_comparison_labels()
+        self.statusBar().showMessage(f"Loaded profile: {name}")
+
+    def _create_profile(self):
+        name, ok = QInputDialog.getText(self, "Create Student Profile", "Student name:")
+        if not ok:
+            return
+        cleaned = name.strip()
+        if not cleaned:
+            return
+        if cleaned not in self._profiles:
+            self._profiles[cleaned] = []
+            self._competition_levels_by_student[cleaned] = DEFAULT_COMPETITION_LEVEL
+            self._save_profiles()
+        self._current_student = cleaned
+        self._competition_level = self._competition_levels_by_student.get(
+            self._current_student, DEFAULT_COMPETITION_LEVEL
+        )
+        self._refresh_profile_ui()
+        self._refresh_comparison_labels()
+        self.statusBar().showMessage(f"Profile ready: {cleaned}")
+
+    @staticmethod
+    def _session_metrics_from_shots(shots: list[Shot]) -> SessionSummary:
+        total = len(shots)
+        avg_speed = sum(s.speed for s in shots) / total if total else 0.0
+        avg_spin = sum(s.spin for s in shots) / total if total else 0.0
+        fast_pct = (sum(1 for s in shots if s.speed > 70) * 100.0 / total) if total else 0.0
+        avg_red = sum(s.impact_redness for s in shots) / total if total else 0.0
+        consistency = 0
+        if total >= 2:
+            sx = _stddev([s.landing_x for s in shots])
+            sy = _stddev([s.landing_y for s in shots])
+            sv = _stddev([s.speed for s in shots])
+            consistency = int(max(0, min(99, 100.0 - (sx * 10.0 + sy * 5.3 + sv * 0.72))))
+        return SessionSummary(
+            student="",
+            started_at=datetime.now().isoformat(timespec="seconds"),
+            shot_count=total,
+            avg_speed=avg_speed,
+            avg_spin=avg_spin,
+            consistency=consistency,
+            fast_pct=fast_pct,
+            avg_impact_redness=avg_red,
+        )
+
+    @staticmethod
+    def _fmt_delta(delta: float, suffix: str = "") -> str:
+        return f"{delta:+.1f}{suffix}"
+
+    def _current_competition_profile(self) -> dict[str, float]:
+        return COMPETITION_PROFILES.get(self._competition_level, COMPETITION_PROFILES[DEFAULT_COMPETITION_LEVEL])
+
+    def _set_competition_level(self, level: str):
+        if level not in COMPETITION_PROFILES:
+            return
+        self._competition_level = level
+        self._competition_levels_by_student[self._current_student] = level
+        self._save_profiles()
+        self._refresh_profile_ui()
+        self.statusBar().showMessage(f"Competition level set to {level} for {self._current_student}.")
+
+    @staticmethod
+    def _ratio_score(actual: float, target: float) -> float:
+        if target <= 1e-6:
+            return 0.0
+        v = (actual / target) * 100.0
+        return max(0.0, min(v, 120.0))
+
+    def _elite_alignment_for_summary(self, summary: SessionSummary) -> dict[str, float]:
+        prof = self._current_competition_profile()
+        speed_score = self._ratio_score(summary.avg_speed, prof["target_speed"])
+        spin_score = self._ratio_score(summary.avg_spin, prof["target_spin"])
+        consistency_score = self._ratio_score(float(summary.consistency), prof["target_consistency"])
+        fast_score = self._ratio_score(summary.fast_pct, prof["target_fast_pct"])
+        impact_score = self._ratio_score(summary.avg_impact_redness, prof["target_impact"])
+        score = (
+            speed_score * 0.30
+            + spin_score * 0.24
+            + consistency_score * 0.22
+            + fast_score * 0.14
+            + impact_score * 0.10
+        )
+        return {
+            "score": max(0.0, min(score, 120.0)),
+            "speed": speed_score,
+            "spin": spin_score,
+            "consistency": consistency_score,
+            "fast": fast_score,
+            "impact": impact_score,
+        }
+
+    def _set_calibration_status(self, text: str):
+        if self._settings_window is not None:
+            self._settings_window.set_calibration_status(text)
+
+    def _refresh_calibration_ui(self):
+        if self._settings_window is not None:
+            self._settings_window.set_calibration_values(
+                self._fw_calibration["counts_per_g"],
+                int(self._fw_calibration["impact_mg_100"]),
+                int(self._fw_calibration["contact_full_scale_mg"]),
+            )
+
+    def _send_worker_command(self, text: str) -> bool:
+        if not self._worker:
+            self.statusBar().showMessage("Sensor not connected.")
+            return False
+        self._worker.request_command(text)
+        return True
+
+    def _request_firmware_calibration(self):
+        if self._send_worker_command(CAL_GET_COMMAND):
+            self._set_calibration_status("Requested calibration from firmware...")
+
+    def _apply_firmware_calibration_from_ui(self, counts_txt: str, impact_txt: str, contact_txt: str):
+        try:
+            counts_per_g = float(counts_txt)
+            impact_mg_100 = int(float(impact_txt))
+            contact_full_scale_mg = int(float(contact_txt))
+        except ValueError:
+            self._set_calibration_status("Calibration values invalid.")
+            return
+
+        if counts_per_g < 50.0 or impact_mg_100 < 100 or contact_full_scale_mg < 100:
+            self._set_calibration_status("Calibration values out of range.")
+            return
+
+        cmd = f"CAL:SET:{counts_per_g:.2f},{impact_mg_100},{contact_full_scale_mg}"
+        if self._send_worker_command(cmd):
+            self._set_calibration_status("Applied calibration in firmware RAM.")
+
+    def _save_firmware_calibration(self):
+        if self._send_worker_command(CAL_SAVE_COMMAND):
+            self._set_calibration_status("Saving calibration to firmware NVS...")
+
+    def _reset_firmware_calibration(self):
+        if self._send_worker_command(CAL_RESET_COMMAND):
+            self._set_calibration_status("Resetting calibration to defaults...")
+
+    def _on_command_rx(self, text: str):
+        if text.startswith("CAL:CFG:"):
+            raw = text[len("CAL:CFG:"):]
+            parts = raw.split(",")
+            if len(parts) == 3:
+                try:
+                    self._fw_calibration["counts_per_g"] = float(parts[0])
+                    self._fw_calibration["impact_mg_100"] = int(parts[1])
+                    self._fw_calibration["contact_full_scale_mg"] = int(parts[2])
+                    self._refresh_calibration_ui()
+                    self._set_calibration_status("Firmware calibration loaded.")
+                except ValueError:
+                    self._set_calibration_status("Firmware calibration parse error.")
+            return
+        if text.startswith("CAL:SAVE:"):
+            self._set_calibration_status("Calibration saved to firmware." if text.endswith("OK") else "Calibration save failed.")
+            return
+        if text.startswith("CAL:RESET:"):
+            self._set_calibration_status("Calibration reset in firmware." if text.endswith("OK") else "Calibration reset failed.")
+            return
+        if text.startswith("CAL:SET:"):
+            self._set_calibration_status("Calibration applied." if text.endswith("OK") else "Calibration apply failed.")
+
+    def _refresh_comparison_labels(self):
+        if self._stats_window is not None:
+            self._stats_window.refresh()
+
+    def _comparison_strings(self) -> tuple[str, str, str, str, str]:
+        sessions = self._profiles.get(self._current_student, [])
+        if len(sessions) < 2:
+            return (
+                "Save at least 2 sessions to compare.",
+                "Avg speed Δ   +0.0 mph",
+                "Avg spin Δ    +0 rpm",
+                "Consistency Δ +0%",
+                "Impact Δ      +0.0%",
+            )
+        prev = sessions[-2]
+        latest = sessions[-1]
+        return (
+            f"{latest.get('started_at', 'latest')} vs {prev.get('started_at', 'previous')}",
+            "Avg speed Δ   "
+            + self._fmt_delta(float(latest.get("avg_speed", 0.0)) - float(prev.get("avg_speed", 0.0)), " mph"),
+            "Avg spin Δ    "
+            + self._fmt_delta(float(latest.get("avg_spin", 0.0)) - float(prev.get("avg_spin", 0.0)), " rpm"),
+            "Consistency Δ "
+            + self._fmt_delta(float(latest.get("consistency", 0.0)) - float(prev.get("consistency", 0.0)), "%"),
+            "Impact Δ      "
+            + self._fmt_delta(
+                float(latest.get("avg_impact_redness", 0.0)) - float(prev.get("avg_impact_redness", 0.0)),
+                "%",
+            ),
+        )
+
+    def _open_stats_screen(self):
+        if self._stats_window is None:
+            self._stats_window = StatsBIWindow(self)
+            self._stats_window.setStyleSheet(self.styleSheet())
+        self._stats_window.refresh()
+        self._stats_window.show()
+        self._stats_window.raise_()
+        self._stats_window.activateWindow()
+
+    def _open_settings_screen(self):
+        if self._settings_window is None:
+            self._settings_window = SettingsWindow(self)
+            self._settings_window.setStyleSheet(self.styleSheet())
+        self._refresh_calibration_ui()
+        self._settings_window.show()
+        self._settings_window.raise_()
+        self._settings_window.activateWindow()
+        if self.mode == "LIVE" and self._worker:
+            self._request_firmware_calibration()
+
+    def _save_current_session(self):
+        if not self.shots:
+            self.statusBar().showMessage("No shots to save for this session.")
+            return
+        summary = self._session_metrics_from_shots(self.shots)
+        summary.student = self._current_student
+        summary.started_at = self._session_started_at
+        entry = {
+            "student": summary.student,
+            "competition_level": self._competition_level,
+            "started_at": summary.started_at,
+            "shot_count": summary.shot_count,
+            "avg_speed": round(summary.avg_speed, 2),
+            "avg_spin": round(summary.avg_spin, 2),
+            "consistency": summary.consistency,
+            "fast_pct": round(summary.fast_pct, 2),
+            "avg_impact_redness": round(summary.avg_impact_redness, 2),
+        }
+        sessions = self._profiles.setdefault(self._current_student, [])
+        if (
+            self._active_session_saved
+            and sessions
+            and sessions[-1].get("started_at") == self._session_started_at
+        ):
+            sessions[-1] = entry
+        else:
+            sessions.append(entry)
+        if len(sessions) > MAX_SESSIONS_PER_STUDENT:
+            self._profiles[self._current_student] = sessions[-MAX_SESSIONS_PER_STUDENT:]
+        self._save_profiles()
+        self._active_session_saved = True
+        self._refresh_profile_ui()
+        self._refresh_comparison_labels()
+        self.statusBar().showMessage(
+            f"Saved session for {self._current_student}: {summary.shot_count} shots, {summary.avg_speed:.1f} mph avg."
+        )
+
     def _apply_style(self):
         self.setStyleSheet(
             """
@@ -999,6 +1858,33 @@ class TennisDashboard(QMainWindow):
                 padding: 8px 10px; color: #d6e8fb; font-weight: 800; font-size: 11px;
             }
             QPushButton:hover { background: #17406c; }
+            QComboBox {
+                background: #0a1b34;
+                border: 1px solid #2a5278;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #d6e8fb;
+                min-height: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background: #0a1b34;
+                color: #d6e8fb;
+                selection-background-color: #17406c;
+            }
+            QPushButton#LevelBtn {
+                background: #0d2b4a;
+                border: 1px solid #2c5a87;
+                border-radius: 6px;
+                padding: 4px 7px;
+                font-size: 9px;
+                font-weight: 800;
+                color: #b9cde3;
+            }
+            QPushButton#LevelBtn:checked {
+                background: #1f7f4a;
+                border-color: #4fbf7a;
+                color: #f1fff6;
+            }
             QPushButton#PrimaryBtn {
                 background: #2f7d2b; border: 1px solid #4da24a; color: #f1fff0;
             }
@@ -1047,6 +1933,8 @@ class TennisDashboard(QMainWindow):
         self.btn_pause.setText("RESUME" if self.paused else "PAUSE")
 
     def _clear_shots(self):
+        if self.shots and not self._active_session_saved:
+            self._save_current_session()
         self._reset_local_session_data()
         self.statusBar().showMessage("Shot history cleared.")
 
@@ -1058,9 +1946,13 @@ class TennisDashboard(QMainWindow):
         self.play_queue = 0
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._session_started_at = datetime.now().isoformat(timespec="seconds")
+        self._active_session_saved = False
         self._refresh_ui(force=True)
 
     def _reset_session(self):
+        if self.shots and not self._active_session_saved:
+            self._save_current_session()
         self._reset_local_session_data()
         if self._worker and self.mode == "LIVE":
             self._worker.request_reset()
@@ -1073,7 +1965,9 @@ class TennisDashboard(QMainWindow):
         if not self.shots:
             self.statusBar().showMessage("No shots to export.")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export Shot Data", "tennis_shots.csv", "CSV Files (*.csv)")
+        safe_student = self._current_student.strip().lower().replace(" ", "_")
+        default_name = f"{safe_student}_tennis_shots.csv" if safe_student else "tennis_shots.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Shot Data", default_name, "CSV Files (*.csv)")
         if not path:
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
@@ -1106,14 +2000,16 @@ class TennisDashboard(QMainWindow):
         self.statusBar().showMessage(f"Exported {len(self.shots)} shots to {path}")
 
     def _add_simulated_shot(self):
-        speed = random.uniform(30.0, 79.0)
+        prof = self._current_competition_profile()
+        speed = random.uniform(prof["sim_speed_min"], prof["sim_speed_max"])
         arm = random.uniform(-32.0, 32.0)
-        spin = int(random.uniform(500, 1850))
-        land_x = max(-3.8, min(3.8, random.gauss(0.0, 1.55)))
-        land_y = max(1.2, min(10.8, random.gauss(7.0, 1.8)))
-        impact_x = int(random.uniform(-45, 45))
-        impact_y = int(random.uniform(-45, 45))
-        redness = int(random.uniform(12, 58))
+        spin = int(random.uniform(prof["sim_spin_min"], prof["sim_spin_max"]))
+        land_x = max(-3.8, min(3.8, random.gauss(0.0, prof["sim_land_sigma_x"])))
+        land_y = max(1.2, min(10.8, random.gauss(prof["sim_land_center_y"], prof["sim_land_sigma_y"])))
+        impact_abs = int(prof["sim_impact_abs"])
+        impact_x = int(random.uniform(-impact_abs, impact_abs))
+        impact_y = int(random.uniform(-impact_abs, impact_abs))
+        redness = int(random.uniform(prof["sim_red_min"], prof["sim_red_max"]))
         self._append_shot(speed, arm, spin, land_x, land_y, impact_x, impact_y, redness)
 
     def _append_shot(
@@ -1142,6 +2038,7 @@ class TennisDashboard(QMainWindow):
         self.shots.append(shot)
         if len(self.shots) > 300:
             self.shots = self.shots[-300:]
+        self._active_session_saved = False
 
     def start_worker(self):
         if self._thread and self._thread.isRunning():
@@ -1158,6 +2055,7 @@ class TennisDashboard(QMainWindow):
         self._worker.ble_handshake.connect(self._on_ble_handshake)
         self._worker.telemetry.connect(self._on_telemetry)
         self._worker.impact.connect(self._on_impact_packet)
+        self._worker.command_rx.connect(self._on_command_rx)
         self._worker.status.connect(self._on_status)
         self._thread.start()
 
@@ -1203,6 +2101,7 @@ class TennisDashboard(QMainWindow):
             self.sensors_chip.setObjectName("ChipOk")
             if self._worker:
                 self._worker.request_command(STREAM_ARM_COMMAND)
+                self._worker.request_command(CAL_GET_COMMAND)
             self.statusBar().showMessage(f"Connected to sensor: {addr}")
         else:
             self.mode = "SIMULATION"
@@ -1228,9 +2127,20 @@ class TennisDashboard(QMainWindow):
         contact_x: int,
         contact_y: int,
     ):
-        del x_mg, y_mg, z_mg
+        mag_mg = math.sqrt(float(x_mg * x_mg + y_mg * y_mg + z_mg * z_mg))
         self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
         self._last_impact_reading = (contact_x, contact_y, intensity)
+        if self._settings_window is not None:
+            self._settings_window.on_impact_event(
+                {
+                    "hit_count": hit_count,
+                    "x_mg": x_mg,
+                    "y_mg": y_mg,
+                    "z_mg": z_mg,
+                    "mag_mg": mag_mg,
+                    "intensity": intensity,
+                }
+            )
         if len(self._impact_by_hit_count) > 128:
             old = sorted(self._impact_by_hit_count.keys())[:-64]
             for key in old:
@@ -1252,20 +2162,36 @@ class TennisDashboard(QMainWindow):
                     if impact is None:
                         impact = self._last_impact_reading
                     impact_x, impact_y, redness = impact
+                    prof = self._current_competition_profile()
                     rate = self.telemetry.rate_x10 / 10.0
                     speed = max(
-                        28.0,
-                        min(89.0, 27.0 + rate * 4.0 + (redness * 0.14) + random.uniform(-2.2, 2.2)),
+                        prof["live_speed_min"],
+                        min(
+                            prof["live_speed_max"],
+                            prof["live_speed_base"]
+                            + rate * prof["live_rate_mul"]
+                            + (redness * prof["live_red_mul"])
+                            + random.uniform(-2.0, 2.0),
+                        ),
                     )
-                    arm = max(-42.0, min(42.0, random.uniform(-20.0, 20.0) + impact_x * 0.42))
+                    arm = max(
+                        -prof["live_arm_abs"],
+                        min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),
+                    )
                     spin = int(
                         max(
-                            450,
-                            min(2600, 620 + rate * 110 + abs(impact_y) * 10 + random.uniform(-95, 110)),
+                            prof["live_spin_min"],
+                            min(
+                                prof["live_spin_max"],
+                                prof["live_spin_base"]
+                                + rate * prof["live_spin_rate_mul"]
+                                + abs(impact_y) * prof["live_spin_impact_mul"]
+                                + random.uniform(-95, 110),
+                            ),
                         )
                     )
-                    lx = max(-3.8, min(3.8, random.gauss(arm / 25.0 + impact_x / 120.0, 1.0)))
-                    ly = max(1.1, min(10.8, random.gauss(7.1 + impact_y / 90.0, 1.4)))
+                    lx = max(-3.6, min(3.6, random.gauss(arm / 30.0 + impact_x / 150.0, 1.0)))
+                    ly = max(1.2, min(10.9, random.gauss(7.2 + impact_y / 115.0, 1.3)))
                     self._append_shot(speed, arm, spin, lx, ly, impact_x, impact_y, redness)
         self.telemetry.ts = time.time()
 
@@ -1354,6 +2280,8 @@ class TennisDashboard(QMainWindow):
                 self.history_table.setItem(r, c, item)
 
     def closeEvent(self, event):  # noqa: N802
+        if self.shots and not self._active_session_saved:
+            self._save_current_session()
         self.stop_worker()
         super().closeEvent(event)
 

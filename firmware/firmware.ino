@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include "./include/config.h"
 #include "./include/logger.h"
+#include "./include/calibration_store.h"
 #include "./include/sensor/ky003_sensor.h"
 #include "./include/sensor/adxl335_sensor.h"
 #include "./include/bluetooth/ble_handler.h"
@@ -28,6 +29,36 @@ LEDHandler& ledHandler = LEDHandler::getInstance();
 static bool g_streamEnabled = BLE_STREAM_DEFAULT_ENABLED != 0;
 static uint32_t g_lastStreamKeepaliveMs = 0;
 static bool g_streamTimeoutWarned = false;
+static ImpactCalibration g_impactCalibration = ADXL335Sensor::defaultCalibration();
+
+static String impactCalibrationToText(const ImpactCalibration& cfg) {
+    String out = "CAL:CFG:";
+    out += String(cfg.countsPerG, 2);
+    out += ",";
+    out += String(cfg.impactMgAt100);
+    out += ",";
+    out += String(cfg.contactFullScaleMg);
+    return out;
+}
+
+static bool parseCalibrationSetCommand(const String& cmd, ImpactCalibration& out) {
+    const String prefix = "CAL:SET:";
+    if (!cmd.startsWith(prefix)) return false;
+    String body = cmd.substring(prefix.length());
+    int c1 = body.indexOf(',');
+    int c2 = body.indexOf(',', c1 + 1);
+    if (c1 <= 0 || c2 <= c1 + 1) return false;
+
+    float countsPerG = body.substring(0, c1).toFloat();
+    long impactMg = body.substring(c1 + 1, c2).toInt();
+    long contactMg = body.substring(c2 + 1).toInt();
+    if (countsPerG < 50.0f || impactMg < 100 || contactMg < 100) return false;
+
+    out.countsPerG = countsPerG;
+    out.impactMgAt100 = static_cast<uint16_t>(impactMg);
+    out.contactFullScaleMg = static_cast<uint16_t>(contactMg);
+    return true;
+}
 
 static bool isStreamActive(uint32_t nowMs) {
     if (!g_streamEnabled) return false;
@@ -51,6 +82,12 @@ void setup() {
 
     Logger::info(String(APP_NAME) + " " + FIRMWARE_VERSION_DISPLAY + " booting");
 
+    if (CalibrationStore::loadImpactCalibration(g_impactCalibration)) {
+        Logger::info("Impact calibration loaded from NVS");
+    } else {
+        Logger::info("Impact calibration defaults in use");
+    }
+    impactSensor.setCalibration(g_impactCalibration);
     sensor.begin();
     impactSensor.begin();
 #if LED_RING_ENABLED
@@ -93,6 +130,33 @@ void loop() {
                 Logger::info("Live stream auto-armed by keepalive");
             }
             bleHandler.notifyCommandAck("PONG");
+        } else if (cmd == "CAL:GET") {
+            bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+        } else if (cmd == "CAL:SAVE") {
+            if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
+                bleHandler.notifyCommandAck("CAL:SAVE:OK");
+            } else {
+                bleHandler.notifyCommandAck("CAL:SAVE:ERR");
+            }
+        } else if (cmd == "CAL:RESET") {
+            g_impactCalibration = ADXL335Sensor::defaultCalibration();
+            impactSensor.setCalibration(g_impactCalibration);
+            if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
+                bleHandler.notifyCommandAck("CAL:RESET:OK");
+            } else {
+                bleHandler.notifyCommandAck("CAL:RESET:ERR");
+            }
+            bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+        } else if (cmd.startsWith("CAL:SET:")) {
+            ImpactCalibration incoming = g_impactCalibration;
+            if (parseCalibrationSetCommand(cmd, incoming)) {
+                g_impactCalibration = incoming;
+                impactSensor.setCalibration(g_impactCalibration);
+                bleHandler.notifyCommandAck("CAL:SET:OK");
+                bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+            } else {
+                bleHandler.notifyCommandAck("CAL:SET:ERR");
+            }
         } else {
             Logger::warn("Unknown command: " + cmd);
         }

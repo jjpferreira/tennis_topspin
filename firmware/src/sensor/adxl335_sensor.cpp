@@ -4,6 +4,22 @@
 
 #include "../../include/config.h"
 
+ImpactCalibration ADXL335Sensor::defaultCalibration() {
+    ImpactCalibration cfg;
+    cfg.countsPerG = ADXL335_COUNTS_PER_G;
+    cfg.impactMgAt100 = ADXL335_IMPACT_MG_AT_100;
+    cfg.contactFullScaleMg = ADXL335_CONTACT_FULL_SCALE_MG;
+    return cfg;
+}
+
+void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg) {
+    ImpactCalibration next = cfg;
+    if (next.countsPerG < 50.0f) next.countsPerG = ADXL335_COUNTS_PER_G;
+    if (next.impactMgAt100 < 100) next.impactMgAt100 = ADXL335_IMPACT_MG_AT_100;
+    if (next.contactFullScaleMg < 100) next.contactFullScaleMg = ADXL335_CONTACT_FULL_SCALE_MG;
+    _calibration = next;
+}
+
 void ADXL335Sensor::begin() {
     pinMode(ADXL335_X_PIN, INPUT);
     pinMode(ADXL335_Y_PIN, INPUT);
@@ -80,9 +96,9 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
     );
 
     int intensity = 0;
-    if (ADXL335_IMPACT_MG_AT_100 > 0) {
+    if (_calibration.impactMgAt100 > 0) {
         intensity = static_cast<int>(
-            (magMg * 100.0f) / static_cast<float>(ADXL335_IMPACT_MG_AT_100)
+            (magMg * 100.0f) / static_cast<float>(_calibration.impactMgAt100)
         );
     }
     intensity = constrain(intensity, 0, 100);
@@ -91,8 +107,8 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
     _lastImpact.yMg = yMg;
     _lastImpact.zMg = zMg;
     _lastImpact.intensityPct = static_cast<uint8_t>(intensity);
-    _lastImpact.contactX = toContactCoord(xMg, ADXL335_CONTACT_FULL_SCALE_MG);
-    _lastImpact.contactY = toContactCoord(yMg, ADXL335_CONTACT_FULL_SCALE_MG);
+    _lastImpact.contactX = toContactCoord(xMg, static_cast<int16_t>(_calibration.contactFullScaleMg));
+    _lastImpact.contactY = toContactCoord(yMg, static_cast<int16_t>(_calibration.contactFullScaleMg));
     _lastImpact.capturedAtMs = nowMs;
 }
 
@@ -102,8 +118,8 @@ void ADXL335Sensor::sampleAxes(int& xRaw, int& yRaw, int& zRaw) const {
     zRaw = analogRead(ADXL335_Z_PIN);
 }
 
-int16_t ADXL335Sensor::countsToMg(int deltaCounts) {
-    const float mg = (static_cast<float>(deltaCounts) * 1000.0f) / ADXL335_COUNTS_PER_G;
+int16_t ADXL335Sensor::countsToMg(int deltaCounts) const {
+    const float mg = (static_cast<float>(deltaCounts) * 1000.0f) / _calibration.countsPerG;
     if (mg > 32767.0f) return 32767;
     if (mg < -32768.0f) return -32768;
     return static_cast<int16_t>(mg);

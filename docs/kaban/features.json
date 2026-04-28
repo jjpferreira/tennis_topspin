@@ -329,10 +329,10 @@
       "id": "item-11",
       "featureId": "FEAT-010",
       "title": "FEAT-010: Calibration — rotation, arm, and simulation tuning parameters",
-      "status": "PLANNED",
+      "status": "IN-PROGRESS",
       "priority": "HIGH",
       "description": "Meet **§9**: **Rotation** — pulses per revolution, magnet alignment, debounce thresholds; **Arm** — zero/home, strike reference, motion scaling, IMU baseline if used; **Simulation** — court scaling, speed-to-color mapping, depth and lateral spread coefficients. Calibration values configurable, not buried (**§13.4**).",
-      "fullBody": "### [PLANNED] [HIGH] FEAT-010: Calibration — rotation, arm, and simulation tuning parameters\n\n**Feature ID:** `FEAT-010` | **Status:** `[PLANNED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Meet **§9**: **Rotation** — pulses per revolution, magnet alignment, debounce thresholds; **Arm** — zero/home, strike reference, motion scaling, IMU baseline if used; **Simulation** — court scaling, speed-to-color mapping, depth and lateral spread coefficients. Calibration values configurable, not buried (**§13.4**).\n\n**Related:** FEAT-001, FEAT-002, FEAT-004, FEAT-005 (thresholds in UI), FEAT-011 (debounce ties to rotation).\n\n---",
+      "fullBody": "### [IN-PROGRESS] [HIGH] FEAT-010: Calibration — rotation, arm, and simulation tuning parameters\n\n**Feature ID:** `FEAT-010` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-28  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Meet **§9**: **Rotation** — pulses per revolution, magnet alignment, debounce thresholds; **Arm** — zero/home, strike reference, motion scaling, IMU baseline if used; **Simulation** — court scaling, speed-to-color mapping, depth and lateral spread coefficients. Calibration values configurable, not buried (**§13.4**).\n\n**Related:** FEAT-001, FEAT-002, FEAT-004, FEAT-005 (thresholds in UI), FEAT-011 (debounce ties to rotation).\n\n---",
       "businessValue": "",
       "complexity": "HIGH",
       "complexityScore": 3,
@@ -359,7 +359,7 @@
           "relation": "related"
         }
       ],
-      "lastUpdatedDate": "2026-04-23",
+      "lastUpdatedDate": "2026-04-28",
       "addedDate": "2026-04-23"
     },
     {
