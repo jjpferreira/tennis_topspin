@@ -38,6 +38,7 @@ BLEHandler::BLEHandler()
       _stateChar(nullptr),
       _countChar(nullptr),
       _rateChar(nullptr),
+      _rpmChar(nullptr),
       _impactChar(nullptr),
       _gateSpeedChar(nullptr),
       _commandChar(nullptr),
@@ -73,6 +74,12 @@ void BLEHandler::setupCharacteristics() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     _rateChar->addDescriptor(new BLE2902());
+
+    _rpmChar = _service->createCharacteristic(
+        TENNIS_RPM_X10_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    _rpmChar->addDescriptor(new BLE2902());
 
     _impactChar = _service->createCharacteristic(
         TENNIS_IMPACT_UUID,
@@ -123,7 +130,7 @@ void BLEHandler::processReconnect(uint32_t nowMs) {
     BLEDevice::startAdvertising();
 }
 
-void BLEHandler::pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10) {
+void BLEHandler::pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10, uint16_t rpmX10) {
     if (!_connected) return;
 
     _stateChar->setValue(&state, sizeof(state));
@@ -134,6 +141,9 @@ void BLEHandler::pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10) 
 
     _rateChar->setValue(reinterpret_cast<uint8_t*>(&rateX10), sizeof(rateX10));
     _rateChar->notify();
+
+    _rpmChar->setValue(reinterpret_cast<uint8_t*>(&rpmX10), sizeof(rpmX10));
+    _rpmChar->notify();
 }
 
 void BLEHandler::pushImpact(
@@ -178,18 +188,18 @@ void BLEHandler::pushImpact(
 void BLEHandler::pushGateSpeed(
     uint32_t sampleId,
     uint16_t speedKmhX10,
-    uint16_t transitMs
+    uint32_t transitUs
 ) {
     if (!_connected || !_gateSpeedChar) return;
 
     struct __attribute__((packed)) GateSpeedPayload {
         uint32_t sampleId;
         uint16_t speedKmhX10;
-        uint16_t transitMs;
+        uint32_t transitUs;
     } payload = {
         sampleId,
         speedKmhX10,
-        transitMs
+        transitUs
     };
 
     _gateSpeedChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));

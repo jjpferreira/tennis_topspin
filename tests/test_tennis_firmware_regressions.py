@@ -43,13 +43,14 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
         "TENNIS_STATE_UUID",
         "TENNIS_COUNT_UUID",
         "TENNIS_RATE_X10_UUID",
+        "TENNIS_RPM_X10_UUID",
         "TENNIS_IMPACT_UUID",
         "TENNIS_GATE_SPEED_UUID",
         "TENNIS_COMMAND_UUID",
     ):
         assert f"#define {name}" in ble_constants
 
-    assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);" in ble_handler_h
+    assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10, uint16_t rpmX10);" in ble_handler_h
     assert "void pushImpact(" in ble_handler_h
     assert "void pushGateSpeed(" in ble_handler_h
     assert "uint16_t magnitudeMg," in ble_handler_h
@@ -58,12 +59,13 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
     assert "_stateChar->notify();" in ble_handler_cpp
     assert "_countChar->notify();" in ble_handler_cpp
     assert "_rateChar->notify();" in ble_handler_cpp
+    assert "_rpmChar->notify();" in ble_handler_cpp
     assert "_impactChar->notify();" in ble_handler_cpp
     assert "_gateSpeedChar->notify();" in ble_handler_cpp
     assert "uint16_t magnitudeMg;" in ble_handler_cpp
     assert "uint8_t flags;" in ble_handler_cpp
     assert "uint16_t speedKmhX10;" in ble_handler_cpp
-    assert "uint16_t transitMs;" in ble_handler_cpp
+    assert "uint32_t transitUs;" in ble_handler_cpp
     assert "TENNIS_COMMAND_UUID" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_NOTIFY" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_WRITE" in ble_handler_cpp
@@ -108,6 +110,9 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "#define KY003_GATE_START_PIN" in config_h
     assert "#define KY003_GATE_END_PIN" in config_h
     assert "#define KY003_GATE_DISTANCE_CM 3.0f" in config_h
+    assert "#define KY003_GATE_MIN_TRANSIT_US 500u" in config_h
+    assert "#define KY003_GATE_MAX_TRANSIT_US 250000u" in config_h
+    assert "#define KY003_RPM_PULSES_PER_REV 1u" in config_h
 
     assert "pinMode(_pin, _inputPullup ? INPUT_PULLUP : INPUT);" in sensor_cpp
     assert "digitalRead(_pin)" in sensor_cpp
@@ -151,14 +156,24 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "class CalibrationStore" in cal_h
     assert "loadImpactCalibration" in cal_h
     assert "saveImpactCalibration" in cal_h
+    assert "loadRuntimeConfig" in cal_h
+    assert "saveRuntimeConfig" in cal_h
     assert "Preferences" in cal_cpp
     assert "constexpr const char* kMinValidKey = \"imp_min\";" in cal_cpp
+    assert "constexpr const char* kGateDistKey = \"gate_cm\";" in cal_cpp
+    assert "constexpr const char* kRpmPprKey = \"rpm_ppr\";" in cal_cpp
     assert "constexpr uint8_t kImpactCalibrationVersion = 2;" in cal_cpp
     assert "out.minValidImpactMg = prefs.getUShort(kMinValidKey, out.minValidImpactMg);" in cal_cpp
     assert "prefs.putUShort(kMinValidKey, cfg.minValidImpactMg);" in cal_cpp
     assert "ADXL335Sensor impactSensor;" in sketch
     assert "ImpactCalibration g_impactCalibration" in sketch
     assert "CalibrationStore::loadImpactCalibration" in sketch
+    assert "CalibrationStore::loadRuntimeConfig(g_gateDistanceCm, g_rpmPulsesPerRev)" in sketch
+    assert "computeRpmX10(rateX10)" in sketch
+    assert "if (cmd == \"GATE:GET\")" in sketch
+    assert "if (cmd.startsWith(\"GATE:SET:\"))" in sketch
+    assert "if (cmd == \"RPM:GET\")" in sketch
+    assert "if (cmd.startsWith(\"RPM:SET:\"))" in sketch
     assert 'if (cmd == "CAL:GET")' in sketch
     assert 'if (cmd == "CAL:SAVE")' in sketch
     assert 'if (cmd == "CAL:RESET")' in sketch
@@ -169,8 +184,8 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "bleHandler.pushImpact(" in sketch
     assert "gateStartSensor.begin();" in sketch
     assert "gateEndSensor.begin();" in sketch
-    assert "updateGateSpeedState(nowMs, gateStartEdge, gateEndEdge);" in sketch
-    assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitMs);" in sketch
+    assert "updateGateSpeedState(nowUs, gateStartEdge, gateEndEdge);" in sketch
+    assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitUs);" in sketch
     assert "impact.magnitudeMg," in sketch
     assert "impact.valid" in sketch
 

@@ -30,7 +30,7 @@ public:
 
     bool isConnected() const { return _connected; }
 
-    void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);
+    void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10, uint16_t rpmX10);
     void pushImpact(
         uint32_t hitCount,
         int16_t xMg,
@@ -45,7 +45,7 @@ public:
     void pushGateSpeed(
         uint32_t sampleId,
         uint16_t speedKmhX10,
-        uint16_t transitMs
+        uint32_t transitUs
     );
 
     /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */
@@ -75,6 +75,7 @@ private:
     BLECharacteristic* _stateChar;
     BLECharacteristic* _countChar;
     BLECharacteristic* _rateChar;
+    BLECharacteristic* _rpmChar;
     BLECharacteristic* _impactChar;
     BLECharacteristic* _gateSpeedChar;
     BLECharacteristic* _commandChar;

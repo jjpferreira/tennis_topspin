@@ -41,6 +41,7 @@ Use this as the quick wiring reference for the ESP32 firmware.
 
 Reference distance for gate speed timing:
 - `KY003_GATE_DISTANCE_CM = 3.0` (start-to-end sensor spacing)
+- Main KY-003 also feeds RPM derivation (`KY003_RPM_PULSES_PER_REV`) via trigger rate conversion.
 
 ## BLE Data Model
 

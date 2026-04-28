@@ -9,6 +9,8 @@ constexpr const char* kCountsKey = "imp_cpg";
 constexpr const char* kImpactKey = "imp_mg100";
 constexpr const char* kContactKey = "imp_full";
 constexpr const char* kMinValidKey = "imp_min";
+constexpr const char* kGateDistKey = "gate_cm";
+constexpr const char* kRpmPprKey = "rpm_ppr";
 constexpr uint8_t kImpactCalibrationVersion = 2;
 }  // namespace
 
@@ -43,6 +45,28 @@ bool CalibrationStore::saveImpactCalibration(const ImpactCalibration& cfg) {
     prefs.putUShort(kImpactKey, cfg.impactMgAt100);
     prefs.putUShort(kContactKey, cfg.contactFullScaleMg);
     prefs.putUShort(kMinValidKey, cfg.minValidImpactMg);
+    prefs.end();
+    return true;
+}
+
+bool CalibrationStore::loadRuntimeConfig(float& gateDistanceCm, uint16_t& rpmPulsesPerRev) {
+    Preferences prefs;
+    if (!prefs.begin(kNs, true)) {
+        return false;
+    }
+    gateDistanceCm = prefs.getFloat(kGateDistKey, gateDistanceCm);
+    rpmPulsesPerRev = prefs.getUShort(kRpmPprKey, rpmPulsesPerRev);
+    prefs.end();
+    return true;
+}
+
+bool CalibrationStore::saveRuntimeConfig(float gateDistanceCm, uint16_t rpmPulsesPerRev) {
+    Preferences prefs;
+    if (!prefs.begin(kNs, false)) {
+        return false;
+    }
+    prefs.putFloat(kGateDistKey, gateDistanceCm);
+    prefs.putUShort(kRpmPprKey, rpmPulsesPerRev);
     prefs.end();
     return true;
 }
