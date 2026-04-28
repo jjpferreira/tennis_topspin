@@ -8,6 +8,8 @@
 // Hardware pins
 #define STATUS_LED_PIN 2
 #define KY003_PIN 4
+#define KY003_GATE_START_PIN 26
+#define KY003_GATE_END_PIN 27
 #define ADXL335_X_PIN 34
 #define ADXL335_Y_PIN 35
 #define ADXL335_Z_PIN 32
@@ -18,6 +20,9 @@
 #define KY003_DEBOUNCE_MS 8u
 #define KY003_RATE_WINDOW_MS 5000u
 #define KY003_EDGE_HISTORY_LEN 256
+#define KY003_GATE_DISTANCE_CM 3.0f
+#define KY003_GATE_MIN_TRANSIT_MS 1u
+#define KY003_GATE_MAX_TRANSIT_MS 250u
 
 // ADXL335 impact capture (analog accelerometer)
 #define ADXL335_SAMPLE_INTERVAL_MS 4u

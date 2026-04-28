@@ -42,6 +42,11 @@ public:
         int8_t contactY,
         bool validImpact
     );
+    void pushGateSpeed(
+        uint32_t sampleId,
+        uint16_t speedKmhX10,
+        uint16_t transitMs
+    );
 
     /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */
     void notifyCommandAck(const char* utf8);
@@ -71,6 +76,7 @@ private:
     BLECharacteristic* _countChar;
     BLECharacteristic* _rateChar;
     BLECharacteristic* _impactChar;
+    BLECharacteristic* _gateSpeedChar;
     BLECharacteristic* _commandChar;
 
     SemaphoreHandle_t _cmdMutex;

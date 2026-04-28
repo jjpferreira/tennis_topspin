@@ -53,6 +53,7 @@ HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
 COMMAND_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a4"
 IMPACT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a5"
+GATE_SPEED_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a6"
 NAME_PREFIX = "TENNIS_KY003"
 BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
@@ -222,6 +223,7 @@ class Telemetry:
     state: int = 0
     count: int = 0
     rate_x10: int = 0
+    gate_speed_mph: float = 0.0
     ts: float = 0.0
 
 
@@ -1723,6 +1725,7 @@ class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int)
     impact = pyqtSignal(int, int, int, int, int, int, int, int, int)
+    gate_speed = pyqtSignal(int, int, int)
     command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
@@ -1777,6 +1780,11 @@ class TennisBleWorker(QObject):
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
                 await self._client.start_notify(RATE_X10_UUID, self._on_rate)
                 await self._client.start_notify(IMPACT_UUID, self._on_impact)
+                try:
+                    await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
+                except Exception:
+                    # Backward compatibility with older firmware builds lacking gate speed UUID.
+                    self.status.emit("Gate speed characteristic unavailable on this firmware.")
                 await self._client.start_notify(COMMAND_UUID, self._on_command_notify)
                 ping_ok = await self._await_command_ack(
                     STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
@@ -1901,6 +1909,11 @@ class TennisBleWorker(QObject):
             valid = 1 if intensity > 0 else 0
             self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
 
+    def _on_gate_speed(self, _sender, data: bytearray):
+        if len(data) >= 8:
+            sample_id, speed_kmh_x10, transit_ms = struct.unpack("<IHH", bytes(data[:8]))
+            self.gate_speed.emit(sample_id, speed_kmh_x10, transit_ms)
+
 
 class TennisDashboard(QMainWindow):
     def __init__(self):
@@ -1921,6 +1934,8 @@ class TennisDashboard(QMainWindow):
         self._last_stream_recovery = 0.0
         self._impact_by_hit_count: dict[int, tuple[int, int, int]] = {}
         self._last_impact_reading = (0, 0, 0)
+        self._last_gate_speed_mph = 0.0
+        self._last_gate_speed_ts = 0.0
         self._profile_store_path = Path(__file__).resolve().with_name(PROFILE_STORE_FILE)
         self._competition_config_path = Path(__file__).resolve().with_name(COMPETITION_CONFIG_FILE)
         self._profiles: dict[str, list[dict]] = {}
@@ -2041,10 +2056,13 @@ class TennisDashboard(QMainWindow):
         self.left_current.layout().addWidget(self.ms_spin)
         self.lbl_impact_xy = QLabel("Impact Offset      +0, +0")
         self.lbl_impact_red = QLabel("Impact Redness     0%")
+        self.lbl_gate_speed = QLabel("Gate Speed         --.- mph")
         self.lbl_impact_xy.setObjectName("SmallMuted")
         self.lbl_impact_red.setObjectName("SmallMuted")
+        self.lbl_gate_speed.setObjectName("SmallMuted")
         self.left_current.layout().addWidget(self.lbl_impact_xy)
         self.left_current.layout().addWidget(self.lbl_impact_red)
+        self.left_current.layout().addWidget(self.lbl_gate_speed)
         left_col.addWidget(self.left_current)
 
         self.left_pred = self._panel("PREDICTED LANDING")
@@ -2917,6 +2935,7 @@ class TennisDashboard(QMainWindow):
         self._worker.ble_handshake.connect(self._on_ble_handshake)
         self._worker.telemetry.connect(self._on_telemetry)
         self._worker.impact.connect(self._on_impact_packet)
+        self._worker.gate_speed.connect(self._on_gate_speed_packet)
         self._worker.command_rx.connect(self._on_command_rx)
         self._worker.status.connect(self._on_status)
         self._thread.start()
@@ -2932,6 +2951,9 @@ class TennisDashboard(QMainWindow):
         self._worker = None
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._last_gate_speed_mph = 0.0
+        self._last_gate_speed_ts = 0.0
+        self.telemetry.gate_speed_mph = 0.0
         self.mode = "SIMULATION"
         self.simulation_enabled = True
         self.mode_chip.setText("MODE\nSIMULATION")
@@ -2970,6 +2992,9 @@ class TennisDashboard(QMainWindow):
             self.simulation_enabled = True
             self._impact_by_hit_count.clear()
             self._last_impact_reading = (0, 0, 0)
+            self._last_gate_speed_mph = 0.0
+            self._last_gate_speed_ts = 0.0
+            self.telemetry.gate_speed_mph = 0.0
             self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
@@ -2978,6 +3003,15 @@ class TennisDashboard(QMainWindow):
 
     def _on_status(self, msg: str):
         self.statusBar().showMessage(msg)
+
+    def _on_gate_speed_packet(self, sample_id: int, speed_kmh_x10: int, transit_ms: int):
+        _ = sample_id
+        kmh = speed_kmh_x10 / 10.0
+        mph = kmh * 0.621371
+        self._last_gate_speed_mph = mph
+        self._last_gate_speed_ts = time.time()
+        self.telemetry.gate_speed_mph = mph
+        self.lbl_gate_speed.setText(f"Gate Speed         {mph:>4.1f} mph ({transit_ms} ms)")
 
     def _on_impact_packet(
         self,
@@ -3031,7 +3065,7 @@ class TennisDashboard(QMainWindow):
                     impact_x, impact_y, redness = impact
                     prof = self._current_competition_profile()
                     rate = self.telemetry.rate_x10 / 10.0
-                    speed = max(
+                    model_speed = max(
                         prof["live_speed_min"],
                         min(
                             prof["live_speed_max"],
@@ -3041,6 +3075,16 @@ class TennisDashboard(QMainWindow):
                             + random.uniform(-2.0, 2.0),
                         ),
                     )
+                    speed = model_speed
+                    now = time.time()
+                    if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:
+                        speed = max(
+                            prof["live_speed_min"],
+                            min(
+                                prof["live_speed_max"],
+                                self._last_gate_speed_mph * 0.72 + model_speed * 0.28,
+                            ),
+                        )
                     arm = max(
                         -prof["live_arm_abs"],
                         min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),
@@ -3094,10 +3138,15 @@ class TennisDashboard(QMainWindow):
             self.lbl_land_y.setText(f"Y (Down Court)    {latest.landing_y:.2f} m")
             self.lbl_impact_xy.setText(f"Impact Offset      {latest.impact_x:+d}, {latest.impact_y:+d}")
             self.lbl_impact_red.setText(f"Impact Redness     {latest.impact_redness:d}%")
+            gate_speed_text = "--.- mph"
+            if self.telemetry.gate_speed_mph > 0.0:
+                gate_speed_text = f"{self.telemetry.gate_speed_mph:.1f} mph"
+            self.lbl_gate_speed.setText(f"Gate Speed         {gate_speed_text}")
             self.impact_widget.set_impact(latest.impact_x, latest.impact_y, latest.impact_redness)
         else:
             self.lbl_impact_xy.setText("Impact Offset      +0, +0")
             self.lbl_impact_red.setText("Impact Redness     0%")
+            self.lbl_gate_speed.setText("Gate Speed         --.- mph")
             self.impact_widget.set_impact(0, 0, 0)
 
         total = len(self.shots)

@@ -21,6 +21,8 @@
 #endif
 
 KY003Sensor sensor;
+KY003Sensor gateStartSensor(KY003_GATE_START_PIN);
+KY003Sensor gateEndSensor(KY003_GATE_END_PIN);
 ADXL335Sensor impactSensor;
 BLEHandler& bleHandler = BLEHandler::getInstance();
 #if LED_RING_ENABLED
@@ -30,6 +32,21 @@ static bool g_streamEnabled = BLE_STREAM_DEFAULT_ENABLED != 0;
 static uint32_t g_lastStreamKeepaliveMs = 0;
 static bool g_streamTimeoutWarned = false;
 static ImpactCalibration g_impactCalibration = ADXL335Sensor::defaultCalibration();
+
+struct GateSpeedState {
+    bool awaitingEnd = false;
+    uint32_t startMs = 0;
+    uint32_t sampleId = 0;
+    bool ready = false;
+    uint16_t speedKmhX10 = 0;
+    uint16_t transitMs = 0;
+};
+static GateSpeedState g_gateSpeed;
+
+struct SensorPipelineResult {
+    bool impactEdge = false;
+    bool gateSpeedReady = false;
+};
 
 static String impactCalibrationToText(const ImpactCalibration& cfg) {
     String out = "CAL:CFG:";
@@ -84,6 +101,35 @@ static bool isStreamActive(uint32_t nowMs) {
     }
 #endif
     return true;
+}
+
+static void updateGateSpeedState(uint32_t nowMs, bool startEdge, bool endEdge) {
+    if (g_gateSpeed.awaitingEnd && (nowMs - g_gateSpeed.startMs) > KY003_GATE_MAX_TRANSIT_MS) {
+        g_gateSpeed.awaitingEnd = false;
+    }
+    if (startEdge) {
+        g_gateSpeed.awaitingEnd = true;
+        g_gateSpeed.startMs = nowMs;
+        return;
+    }
+    if (!g_gateSpeed.awaitingEnd || !endEdge || nowMs <= g_gateSpeed.startMs) {
+        return;
+    }
+    uint32_t dtMs = nowMs - g_gateSpeed.startMs;
+    g_gateSpeed.awaitingEnd = false;
+    if (dtMs < KY003_GATE_MIN_TRANSIT_MS || dtMs > KY003_GATE_MAX_TRANSIT_MS) {
+        return;
+    }
+
+    // km/h * 10 = (distance_cm * 360) / dt_ms
+    float kmhX10f = (KY003_GATE_DISTANCE_CM * 360.0f) / static_cast<float>(dtMs);
+    if (kmhX10f < 0.0f) kmhX10f = 0.0f;
+    if (kmhX10f > 65535.0f) kmhX10f = 65535.0f;
+
+    g_gateSpeed.sampleId++;
+    g_gateSpeed.transitMs = static_cast<uint16_t>(dtMs);
+    g_gateSpeed.speedKmhX10 = static_cast<uint16_t>(kmhX10f);
+    g_gateSpeed.ready = true;
 }
 
 static void applyImpactCalibration(const ImpactCalibration& cfg) {
@@ -155,13 +201,19 @@ static void processControlCommand(const String& cmd, uint32_t nowMs) {
     Logger::warn("Unknown command: " + cmd);
 }
 
-static bool runSensorPipeline(uint32_t nowMs) {
-    bool impactEdge = sensor.update(nowMs);
+static SensorPipelineResult runSensorPipeline(uint32_t nowMs) {
+    SensorPipelineResult out;
+    out.impactEdge = sensor.update(nowMs);
+    bool gateStartEdge = gateStartSensor.update(nowMs);
+    bool gateEndEdge = gateEndSensor.update(nowMs);
+    updateGateSpeedState(nowMs, gateStartEdge, gateEndEdge);
+    out.gateSpeedReady = g_gateSpeed.ready;
+
     impactSensor.update(nowMs);
-    if (impactEdge) {
+    if (out.impactEdge) {
         impactSensor.captureImpact(nowMs);
     }
-    return impactEdge;
+    return out;
 }
 
 static void processBleCommands(uint32_t nowMs) {
@@ -173,10 +225,11 @@ static void processBleCommands(uint32_t nowMs) {
     processControlCommand(cmd, nowMs);
 }
 
-static void publishBleTelemetry(uint32_t nowMs, bool impactEdge) {
+static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sensorResult) {
     if (!bleHandler.isConnected()) {
         g_streamEnabled = false;
         g_streamTimeoutWarned = false;
+        g_gateSpeed.ready = false;
         return;
     }
 
@@ -190,26 +243,33 @@ static void publishBleTelemetry(uint32_t nowMs, bool impactEdge) {
         );
     }
 
-    if (!impactEdge || !isStreamActive(nowMs)) {
+    if (!isStreamActive(nowMs)) {
         return;
     }
 
-    ImpactSample impact = impactSensor.getLastImpact();
-    if (!impact.valid) {
-        return;
+    if (sensorResult.gateSpeedReady && g_gateSpeed.ready) {
+        bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitMs);
+        g_gateSpeed.ready = false;
     }
 
-    bleHandler.pushImpact(
-        sensor.getHitCount(),
-        impact.xMg,
-        impact.yMg,
-        impact.zMg,
-        impact.magnitudeMg,
-        impact.intensityPct,
-        impact.contactX,
-        impact.contactY,
-        impact.valid
-    );
+    if (sensorResult.impactEdge) {
+        ImpactSample impact = impactSensor.getLastImpact();
+        if (!impact.valid) {
+            return;
+        }
+
+        bleHandler.pushImpact(
+            sensor.getHitCount(),
+            impact.xMg,
+            impact.yMg,
+            impact.zMg,
+            impact.magnitudeMg,
+            impact.intensityPct,
+            impact.contactX,
+            impact.contactY,
+            impact.valid
+        );
+    }
 }
 
 static void updateLedFeedback(uint32_t nowMs) {
@@ -241,6 +301,8 @@ void setup() {
     }
     applyImpactCalibration(g_impactCalibration);
     sensor.begin();
+    gateStartSensor.begin();
+    gateEndSensor.begin();
     impactSensor.begin();
 #if LED_RING_ENABLED
     ledHandler.begin();
@@ -253,8 +315,8 @@ void setup() {
 
 void loop() {
     uint32_t now = millis();
-    bool impactEdge = runSensorPipeline(now);
+    SensorPipelineResult sensorResult = runSensorPipeline(now);
     processBleCommands(now);
-    publishBleTelemetry(now, impactEdge);
+    publishBleTelemetry(now, sensorResult);
     updateLedFeedback(now);
 }

@@ -39,6 +39,7 @@ BLEHandler::BLEHandler()
       _countChar(nullptr),
       _rateChar(nullptr),
       _impactChar(nullptr),
+      _gateSpeedChar(nullptr),
       _commandChar(nullptr),
       _cmdMutex(xSemaphoreCreateMutex()),
       _deferredCommand("") {}
@@ -78,6 +79,12 @@ void BLEHandler::setupCharacteristics() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     _impactChar->addDescriptor(new BLE2902());
+
+    _gateSpeedChar = _service->createCharacteristic(
+        TENNIS_GATE_SPEED_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    _gateSpeedChar->addDescriptor(new BLE2902());
 
     _commandChar = _service->createCharacteristic(
         TENNIS_COMMAND_UUID,
@@ -166,6 +173,27 @@ void BLEHandler::pushImpact(
 
     _impactChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));
     _impactChar->notify();
+}
+
+void BLEHandler::pushGateSpeed(
+    uint32_t sampleId,
+    uint16_t speedKmhX10,
+    uint16_t transitMs
+) {
+    if (!_connected || !_gateSpeedChar) return;
+
+    struct __attribute__((packed)) GateSpeedPayload {
+        uint32_t sampleId;
+        uint16_t speedKmhX10;
+        uint16_t transitMs;
+    } payload = {
+        sampleId,
+        speedKmhX10,
+        transitMs
+    };
+
+    _gateSpeedChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));
+    _gateSpeedChar->notify();
 }
 
 void BLEHandler::onDataReceived(const String& command) {

@@ -44,12 +44,14 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
         "TENNIS_COUNT_UUID",
         "TENNIS_RATE_X10_UUID",
         "TENNIS_IMPACT_UUID",
+        "TENNIS_GATE_SPEED_UUID",
         "TENNIS_COMMAND_UUID",
     ):
         assert f"#define {name}" in ble_constants
 
     assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);" in ble_handler_h
     assert "void pushImpact(" in ble_handler_h
+    assert "void pushGateSpeed(" in ble_handler_h
     assert "uint16_t magnitudeMg," in ble_handler_h
     assert "bool validImpact" in ble_handler_h
     assert "void notifyCommandAck(const char* utf8);" in ble_handler_h
@@ -57,8 +59,11 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
     assert "_countChar->notify();" in ble_handler_cpp
     assert "_rateChar->notify();" in ble_handler_cpp
     assert "_impactChar->notify();" in ble_handler_cpp
+    assert "_gateSpeedChar->notify();" in ble_handler_cpp
     assert "uint16_t magnitudeMg;" in ble_handler_cpp
     assert "uint8_t flags;" in ble_handler_cpp
+    assert "uint16_t speedKmhX10;" in ble_handler_cpp
+    assert "uint16_t transitMs;" in ble_handler_cpp
     assert "TENNIS_COMMAND_UUID" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_NOTIFY" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_WRITE" in ble_handler_cpp
@@ -89,17 +94,28 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     sensor_cpp = read_text(SENSOR_CPP)
     config_h = read_text(CONFIG_H)
 
+    assert "explicit KY003Sensor(" in sensor_h
+    assert "uint8_t pin = KY003_PIN" in sensor_h
+    assert "_pin;" in sensor_h
+    assert "_countOnFallingEdge;" in sensor_h
+    assert "_debounceMs;" in sensor_h
+    assert "_rateWindowMs;" in sensor_h
     assert "bool update(uint32_t nowMs);" in sensor_h
     assert "uint16_t getRateX10(uint32_t nowMs) const;" in sensor_h
     assert "bool shouldCountEdge(uint8_t previous, uint8_t current) const;" in sensor_h
     assert "#define KY003_DEBOUNCE_MS 8u" in config_h
     assert "#define KY003_RATE_WINDOW_MS 5000u" in config_h
+    assert "#define KY003_GATE_START_PIN" in config_h
+    assert "#define KY003_GATE_END_PIN" in config_h
+    assert "#define KY003_GATE_DISTANCE_CM 3.0f" in config_h
 
-    assert "if (raw != _stableState && (nowMs - _rawChangedAt) >= KY003_DEBOUNCE_MS)" in sensor_cpp
+    assert "pinMode(_pin, _inputPullup ? INPUT_PULLUP : INPUT);" in sensor_cpp
+    assert "digitalRead(_pin)" in sensor_cpp
+    assert "if (raw != _stableState && (nowMs - _rawChangedAt) >= _debounceMs)" in sensor_cpp
     assert "if (shouldCountEdge(prev, _stableState)) {" in sensor_cpp
     assert "_hitCount++;" in sensor_cpp
-    assert "uint32_t cutoff = nowMs - KY003_RATE_WINDOW_MS;" in sensor_cpp
-    assert "float rateX10 = (10000.0f * static_cast<float>(inWindow)) / static_cast<float>(KY003_RATE_WINDOW_MS);" in sensor_cpp
+    assert "uint32_t cutoff = nowMs - _rateWindowMs;" in sensor_cpp
+    assert "float rateX10 = (10000.0f * static_cast<float>(inWindow)) / static_cast<float>(_rateWindowMs);" in sensor_cpp
 
 
 def test_tennis_impact_sensor_module_is_wired_and_configured():
@@ -151,6 +167,10 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "long minValidMg = out.minValidImpactMg > 0 ? out.minValidImpactMg : ADXL335_MIN_VALID_IMPACT_MG;" in sketch
     assert "impactSensor.captureImpact(nowMs);" in sketch
     assert "bleHandler.pushImpact(" in sketch
+    assert "gateStartSensor.begin();" in sketch
+    assert "gateEndSensor.begin();" in sketch
+    assert "updateGateSpeedState(nowMs, gateStartEdge, gateEndEdge);" in sketch
+    assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitMs);" in sketch
     assert "impact.magnitudeMg," in sketch
     assert "impact.valid" in sketch
 

@@ -24,6 +24,24 @@ Stream fast magnetic trigger data from an ESP32 + **KY-003 magnetic sensor** to 
   - PyQt6 + Bleak desktop live monitor
   - Connects to BLE device, displays state/counter/rate, and plots live hit rate
 
+## Firmware Wiring Header (Sensor Pin Table)
+
+Use this as the quick wiring reference for the ESP32 firmware.
+
+| Sensor / Module | Purpose | ESP32 Pin | Config Key |
+|---|---|---:|---|
+| KY-003 (main trigger) | Hit edge/count/rate base signal | `GPIO 4` | `KY003_PIN` |
+| KY-003 gate start | Ball speed timing start gate | `GPIO 26` | `KY003_GATE_START_PIN` |
+| KY-003 gate end | Ball speed timing end gate | `GPIO 27` | `KY003_GATE_END_PIN` |
+| ADXL335 X | Impact axis X analog input | `GPIO 34` | `ADXL335_X_PIN` |
+| ADXL335 Y | Impact axis Y analog input | `GPIO 35` | `ADXL335_Y_PIN` |
+| ADXL335 Z | Impact axis Z analog input | `GPIO 32` | `ADXL335_Z_PIN` |
+| Status LED | BLE connection status | `GPIO 2` | `STATUS_LED_PIN` |
+| WS2812 LED ring (optional) | Visual feedback ring data line | `GPIO 12` | `LED_PIN` |
+
+Reference distance for gate speed timing:
+- `KY003_GATE_DISTANCE_CM = 3.0` (start-to-end sensor spacing)
+
 ## BLE Data Model
 
 - `state` (uint8): current debounced KY-003 level (0/1)

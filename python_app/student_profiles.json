@@ -370,6 +370,17 @@
         "consistency": 72,
         "fast_pct": 31.58,
         "avg_impact_redness": 52.84
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-28T21:14:47",
+        "shot_count": 8,
+        "avg_speed": 60.44,
+        "avg_spin": 1882.38,
+        "consistency": 72,
+        "fast_pct": 25.0,
+        "avg_impact_redness": 43.12
       }
     ],
     "John Sanchez": [
