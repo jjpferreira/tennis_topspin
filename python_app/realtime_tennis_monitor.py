@@ -28,7 +28,6 @@ from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, QThread, QTimer, pyqtSign
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
-    QButtonGroup,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -39,6 +38,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -68,9 +68,10 @@ MAX_SESSIONS_PER_STUDENT = 40
 CAL_GET_COMMAND = "CAL:GET"
 CAL_SAVE_COMMAND = "CAL:SAVE"
 CAL_RESET_COMMAND = "CAL:RESET"
+COMPETITION_CONFIG_FILE = "competition_profiles.json"
 
 # Competition levels from beginner to pro
-COMPETITION_PROFILES: dict[str, dict[str, float]] = {
+DEFAULT_COMPETITION_PROFILES: dict[str, dict[str, float]] = {
     "Newbie": {
         "target_speed": 40.0,
         "target_spin": 900.0,
@@ -640,6 +641,86 @@ class TennisBallImpactWidget(QWidget):
         p.drawText(10, self.height() - 10, f"Impact {self.impact_x:+d}, {self.impact_y:+d} | Redness {self.impact_redness:d}%")
 
 
+class CalibrationWizardPreviewWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._mode: str | None = None
+        self._last_x = 0
+        self._last_y = 0
+        self._last_redness = 0
+        self.setMinimumHeight(175)
+
+    def set_mode(self, mode: str | None):
+        self._mode = mode if mode in {"soft", "hard"} else None
+        self.update()
+
+    def set_last_hit(self, impact_x: int, impact_y: int, impact_redness: int):
+        self._last_x = max(-100, min(100, int(impact_x)))
+        self._last_y = max(-100, min(100, int(impact_y)))
+        self._last_redness = max(0, min(100, int(impact_redness)))
+        self.update()
+
+    def paintEvent(self, event):  # noqa: N802
+        del event
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("#071224"))
+
+        size = min(self.width(), self.height()) - 28
+        size = max(size, 88)
+        ball_rect = QRectF(
+            (self.width() - size) * 0.5,
+            (self.height() - size) * 0.5,
+            size,
+            size,
+        )
+
+        ball_grad = QRadialGradient(
+            ball_rect.center().x() - size * 0.2,
+            ball_rect.center().y() - size * 0.24,
+            size * 0.65,
+        )
+        ball_grad.setColorAt(0.0, QColor("#f6ff95"))
+        ball_grad.setColorAt(0.62, QColor("#dcf15f"))
+        ball_grad.setColorAt(1.0, QColor("#95b63a"))
+        p.setPen(QPen(QColor("#d8e88d"), 1.5))
+        p.setBrush(ball_grad)
+        p.drawEllipse(ball_rect)
+
+        # Recommended calibration zone overlay.
+        target_radius = size * (0.15 if self._mode == "soft" else 0.11)
+        target_color = QColor("#78d8ff" if self._mode == "soft" else "#ff9b66")
+        target_color.setAlpha(120 if self._mode else 55)
+        p.setBrush(target_color)
+        p.setPen(QPen(QColor("#e8f7ff" if self._mode == "soft" else "#ffe9d6"), 1.2))
+        p.drawEllipse(ball_rect.center(), target_radius, target_radius)
+
+        nx = self._last_x / 100.0
+        ny = self._last_y / 100.0
+        cx = ball_rect.center().x() + nx * (size * 0.34)
+        cy = ball_rect.center().y() - ny * (size * 0.34)
+        hit_r = size * (0.04 + self._last_redness * 0.0007)
+        hit_r = max(hit_r, 5.0)
+        if self._last_redness > 0:
+            glow = QColor("#ff4040")
+            glow.setAlpha(35 + int(1.8 * self._last_redness))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(glow)
+            p.drawEllipse(QPointF(cx, cy), hit_r * 1.8, hit_r * 1.8)
+        p.setPen(QPen(QColor("#ffd6d6"), 1.0))
+        p.setBrush(QColor("#ff2d2d"))
+        p.drawEllipse(QPointF(cx, cy), hit_r, hit_r)
+
+        p.setPen(QColor("#c5d8eb"))
+        p.setFont(QFont("Arial", 8))
+        mode_txt = "IDLE"
+        if self._mode == "soft":
+            mode_txt = "SOFT CAPTURE: aim smooth center contacts"
+        elif self._mode == "hard":
+            mode_txt = "HARD CAPTURE: aim center with full power"
+        p.drawText(10, self.height() - 10, mode_txt)
+
+
 class StatsBIWindow(QWidget):
     def __init__(self, dashboard: "TennisDashboard"):
         super().__init__()
@@ -657,7 +738,7 @@ class StatsBIWindow(QWidget):
         self.profile_combo.setMinimumWidth(220)
         self.level_combo = QComboBox()
         self.level_combo.setMinimumWidth(160)
-        self.level_combo.addItems(list(COMPETITION_PROFILES.keys()))
+        self.level_combo.addItems(list(self.dashboard._competition_profiles.keys()))
         self.btn_new_profile = QPushButton("NEW STUDENT")
         self.btn_save_session = QPushButton("SAVE SESSION")
         self.btn_compare = QPushButton("COMPARE LAST 2")
@@ -756,6 +837,8 @@ class StatsBIWindow(QWidget):
         self.profile_combo.clear()
         self.profile_combo.addItems(names)
         self.profile_combo.setCurrentText(self.dashboard._current_student)
+        self.level_combo.clear()
+        self.level_combo.addItems(list(self.dashboard._competition_profiles.keys()))
         self.level_combo.setCurrentText(self.dashboard._competition_level)
         self._profile_switching = False
 
@@ -827,6 +910,27 @@ class SettingsWindow(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
+        self.settings_tabs = QTabWidget()
+        self.settings_tabs.setObjectName("SettingsTabs")
+        root.addWidget(self.settings_tabs, 1)
+
+        cal_tab = QWidget()
+        cal_tab_lay = QVBoxLayout(cal_tab)
+        cal_tab_lay.setContentsMargins(0, 0, 0, 0)
+        cal_tab_lay.setSpacing(8)
+        self.settings_tabs.addTab(cal_tab, "Calibration")
+
+        wiz_tab = QWidget()
+        wiz_tab_lay = QVBoxLayout(wiz_tab)
+        wiz_tab_lay.setContentsMargins(0, 0, 0, 0)
+        wiz_tab_lay.setSpacing(8)
+        self.settings_tabs.addTab(wiz_tab, "Wizard")
+
+        comp_tab = QWidget()
+        comp_tab_lay = QVBoxLayout(comp_tab)
+        comp_tab_lay.setContentsMargins(0, 0, 0, 0)
+        comp_tab_lay.setSpacing(8)
+        self.settings_tabs.addTab(comp_tab, "Competition Profiles")
 
         cal_box = QFrame()
         cal_box.setObjectName("Panel")
@@ -860,7 +964,8 @@ class SettingsWindow(QWidget):
         self.lbl_cal_status = QLabel("Calibration ready.")
         self.lbl_cal_status.setObjectName("SmallMuted")
         cal_lay.addWidget(self.lbl_cal_status)
-        root.addWidget(cal_box)
+        cal_tab_lay.addWidget(cal_box)
+        cal_tab_lay.addStretch(1)
 
         wiz_box = QFrame()
         wiz_box.setObjectName("Panel")
@@ -873,6 +978,8 @@ class SettingsWindow(QWidget):
         )
         self.lbl_wizard_help.setObjectName("SmallMuted")
         wiz_lay.addWidget(self.lbl_wizard_help)
+        self.wiz_preview = CalibrationWizardPreviewWidget()
+        wiz_lay.addWidget(self.wiz_preview)
         wiz_btns = QHBoxLayout()
         self.btn_wiz_soft = QPushButton("1) CAPTURE SOFT")
         self.btn_wiz_hard = QPushButton("2) CAPTURE HARD")
@@ -893,7 +1000,43 @@ class SettingsWindow(QWidget):
         wiz_lay.addWidget(self.lbl_wiz_soft)
         wiz_lay.addWidget(self.lbl_wiz_hard)
         wiz_lay.addWidget(self.lbl_wiz_suggest)
-        root.addWidget(wiz_box)
+        wiz_tab_lay.addWidget(wiz_box)
+        wiz_tab_lay.addStretch(1)
+
+        comp_box = QFrame()
+        comp_box.setObjectName("Panel")
+        comp_lay = QVBoxLayout(comp_box)
+        comp_lay.setContentsMargins(10, 8, 10, 8)
+        comp_lay.setSpacing(6)
+        comp_lay.addWidget(QLabel("COMPETITION PROFILE SETTINGS"))
+        comp_row = QHBoxLayout()
+        self.comp_profile_combo = QComboBox()
+        self.comp_profile_combo.addItems(list(self.dashboard._competition_profiles.keys()))
+        comp_row.addWidget(QLabel("Edit level"))
+        comp_row.addWidget(self.comp_profile_combo, 1)
+        comp_lay.addLayout(comp_row)
+
+        grouped_row = QHBoxLayout()
+        grouped_row.setSpacing(8)
+        self.comp_targets_table = self._new_comp_table()
+        self.comp_sim_table = self._new_comp_table()
+        self.comp_live_table = self._new_comp_table()
+        grouped_row.addWidget(self._wrap_comp_group("Targets", self.comp_targets_table), 1)
+        grouped_row.addWidget(self._wrap_comp_group("Simulation", self.comp_sim_table), 1)
+        grouped_row.addWidget(self._wrap_comp_group("Live", self.comp_live_table), 1)
+        comp_lay.addLayout(grouped_row, 1)
+        comp_btns = QHBoxLayout()
+        self.btn_comp_apply = QPushButton("APPLY LEVEL")
+        self.btn_comp_save = QPushButton("SAVE CONFIG FILE")
+        self.btn_comp_reset = QPushButton("RESET DEFAULTS")
+        comp_btns.addWidget(self.btn_comp_apply)
+        comp_btns.addWidget(self.btn_comp_save)
+        comp_btns.addWidget(self.btn_comp_reset)
+        comp_lay.addLayout(comp_btns)
+        self.lbl_comp_status = QLabel("Competition profile editor ready.")
+        self.lbl_comp_status.setObjectName("SmallMuted")
+        comp_lay.addWidget(self.lbl_comp_status)
+        comp_tab_lay.addWidget(comp_box, 1)
 
         self.btn_cal_load.clicked.connect(self.dashboard._request_firmware_calibration)
         self.btn_cal_apply.clicked.connect(self._apply_calibration_from_inputs)
@@ -902,6 +1045,11 @@ class SettingsWindow(QWidget):
         self.btn_wiz_soft.clicked.connect(lambda: self._start_capture("soft"))
         self.btn_wiz_hard.clicked.connect(lambda: self._start_capture("hard"))
         self.btn_wiz_apply.clicked.connect(self._apply_suggested)
+        self.comp_profile_combo.currentTextChanged.connect(self._refresh_competition_editor)
+        self.btn_comp_apply.clicked.connect(self._apply_competition_editor_changes)
+        self.btn_comp_save.clicked.connect(self._save_competition_editor_changes)
+        self.btn_comp_reset.clicked.connect(self._reset_competition_editor_defaults)
+        self._refresh_competition_editor(self.comp_profile_combo.currentText())
 
     def _apply_calibration_from_inputs(self):
         self.dashboard._apply_firmware_calibration_from_ui(
@@ -918,16 +1066,159 @@ class SettingsWindow(QWidget):
     def set_calibration_status(self, text: str):
         self.lbl_cal_status.setText(text)
 
+    def refresh(self):
+        current = self.comp_profile_combo.currentText() or self.dashboard._competition_level
+        self.comp_profile_combo.blockSignals(True)
+        self.comp_profile_combo.clear()
+        self.comp_profile_combo.addItems(list(self.dashboard._competition_profiles.keys()))
+        self.comp_profile_combo.setCurrentText(current)
+        self.comp_profile_combo.blockSignals(False)
+        self._refresh_competition_editor(self.comp_profile_combo.currentText())
+
+    def _refresh_competition_editor(self, level: str):
+        profile = self.dashboard._competition_profiles.get(level)
+        if not profile:
+            self.comp_targets_table.setRowCount(0)
+            self.comp_sim_table.setRowCount(0)
+            self.comp_live_table.setRowCount(0)
+            return
+        self._populate_comp_group_table(
+            self.comp_targets_table,
+            profile,
+            ("target_",),
+        )
+        self._populate_comp_group_table(
+            self.comp_sim_table,
+            profile,
+            ("sim_",),
+        )
+        self._populate_comp_group_table(
+            self.comp_live_table,
+            profile,
+            ("live_",),
+        )
+
+    def _apply_competition_editor_changes(self) -> bool:
+        level = self.comp_profile_combo.currentText().strip()
+        profile = self.dashboard._competition_profiles.get(level)
+        if not level or profile is None:
+            self.lbl_comp_status.setText("Select a competition level first.")
+            return False
+        updated: dict[str, float] = {}
+        for table in (self.comp_targets_table, self.comp_sim_table, self.comp_live_table):
+            ok, values_or_error = self._collect_comp_group_values(table)
+            if not ok:
+                self.lbl_comp_status.setText(str(values_or_error))
+                return False
+            updated.update(values_or_error)
+        self.dashboard._competition_profiles[level].update(updated)
+        self.dashboard._sanitize_competition_profiles()
+        self.dashboard._refresh_competition_toggle()
+        self.dashboard._refresh_comparison_labels()
+        if self.dashboard._stats_window is not None:
+            self.dashboard._stats_window.refresh()
+        self._refresh_competition_editor(level)
+        self.lbl_comp_status.setText(f"Applied changes to {level}. Save file to persist.")
+        return True
+
+    def _save_competition_editor_changes(self):
+        if not self._apply_competition_editor_changes():
+            return
+        self.dashboard._save_competition_profiles_config()
+        self.lbl_comp_status.setText(
+            f"Saved competition profiles to {self.dashboard._competition_config_path.name}."
+        )
+
+    def _reset_competition_editor_defaults(self):
+        self.dashboard._competition_profiles = {
+            lvl: vals.copy() for lvl, vals in DEFAULT_COMPETITION_PROFILES.items()
+        }
+        self.dashboard._sanitize_competition_profiles()
+        self.dashboard._save_competition_profiles_config()
+        self.dashboard._set_competition_level(self.dashboard._competition_level)
+        if self.dashboard._stats_window is not None:
+            self.dashboard._stats_window.refresh()
+        self.comp_profile_combo.clear()
+        self.comp_profile_combo.addItems(list(self.dashboard._competition_profiles.keys()))
+        self.comp_profile_combo.setCurrentText(self.dashboard._competition_level)
+        self._refresh_competition_editor(self.comp_profile_combo.currentText())
+        self.lbl_comp_status.setText("Competition profile defaults restored and saved.")
+
+    @staticmethod
+    def _new_comp_table() -> QTableWidget:
+        table = QTableWidget(0, 2)
+        table.setHorizontalHeaderLabels(["Setting", "Value"])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.horizontalHeader().setStretchLastSection(True)
+        return table
+
+    @staticmethod
+    def _wrap_comp_group(title: str, table: QTableWidget) -> QFrame:
+        box = QFrame()
+        box.setObjectName("Panel")
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(4)
+        hdr = QLabel(title)
+        hdr.setObjectName("PanelTitle")
+        lay.addWidget(hdr)
+        lay.addWidget(table, 1)
+        return box
+
+    @staticmethod
+    def _display_profile_key(key: str) -> str:
+        for pref in ("target_", "sim_", "live_"):
+            if key.startswith(pref):
+                key = key[len(pref):]
+                break
+        return key.replace("_", " ").upper()
+
+    def _populate_comp_group_table(
+        self,
+        table: QTableWidget,
+        profile: dict[str, float],
+        prefixes: tuple[str, ...],
+    ):
+        keys = sorted(k for k in profile.keys() if any(k.startswith(pref) for pref in prefixes))
+        table.setRowCount(len(keys))
+        for idx, key in enumerate(keys):
+            key_item = QTableWidgetItem(self._display_profile_key(key))
+            key_item.setData(Qt.ItemDataRole.UserRole, key)
+            key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(idx, 0, key_item)
+            table.setItem(idx, 1, QTableWidgetItem(f"{float(profile[key]):.3f}"))
+
+    @staticmethod
+    def _collect_comp_group_values(table: QTableWidget) -> tuple[bool, dict[str, float] | str]:
+        updated: dict[str, float] = {}
+        for row in range(table.rowCount()):
+            key_item = table.item(row, 0)
+            val_item = table.item(row, 1)
+            if key_item is None or val_item is None:
+                continue
+            raw_key = key_item.data(Qt.ItemDataRole.UserRole)
+            key = str(raw_key) if isinstance(raw_key, str) else key_item.text().strip().lower().replace(" ", "_")
+            try:
+                updated[key] = float(val_item.text().strip())
+            except ValueError:
+                label = key_item.text().strip()
+                return False, f"Invalid numeric value for '{label}'."
+        return True, updated
+
     def _start_capture(self, mode: str):
         if mode == "soft":
             self._soft_samples = []
             self.lbl_wiz_soft.setText("Soft set: capturing...")
             self.lbl_wiz_status.setText(f"Capture {self._capture_target} soft hits now.")
+            self.lbl_wizard_help.setText("Soft capture: hit around center with controlled pace.")
         else:
             self._hard_samples = []
             self.lbl_wiz_hard.setText("Hard set: capturing...")
             self.lbl_wiz_status.setText(f"Capture {self._capture_target} hard hits now.")
+            self.lbl_wizard_help.setText("Hard capture: hit around center with stronger acceleration.")
         self._capture_mode = mode
+        self.wiz_preview.set_mode(mode)
 
     @staticmethod
     def _mag(e: dict) -> float:
@@ -965,6 +1256,11 @@ class SettingsWindow(QWidget):
             )
 
     def on_impact_event(self, event: dict):
+        self.wiz_preview.set_last_hit(
+            int(event.get("impact_x", 0)),
+            int(event.get("impact_y", 0)),
+            int(event.get("redness", 0)),
+        )
         if self._capture_mode is None:
             return
         target = self._soft_samples if self._capture_mode == "soft" else self._hard_samples
@@ -979,6 +1275,10 @@ class SettingsWindow(QWidget):
             return
         self.lbl_wiz_status.setText(f"{self._capture_mode.title()} capture complete.")
         self._capture_mode = None
+        self.wiz_preview.set_mode(None)
+        self.lbl_wizard_help.setText(
+            "Capture complete for this step. Continue with the next capture or apply suggestion."
+        )
         self._update_wizard_summary()
 
     def _apply_suggested(self):
@@ -989,6 +1289,7 @@ class SettingsWindow(QWidget):
         self.cal_contact_input.setText(str(self._suggested_contact_full_scale_mg))
         self._apply_calibration_from_inputs()
         self.lbl_wiz_status.setText("Applied suggested calibration to firmware RAM.")
+        self.lbl_wizard_help.setText("Suggested calibration applied. Save to firmware when ready.")
 
 
 class TennisBleWorker(QObject):
@@ -1186,7 +1487,11 @@ class TennisDashboard(QMainWindow):
         self._impact_by_hit_count: dict[int, tuple[int, int, int]] = {}
         self._last_impact_reading = (0, 0, 0)
         self._profile_store_path = Path(__file__).resolve().with_name(PROFILE_STORE_FILE)
+        self._competition_config_path = Path(__file__).resolve().with_name(COMPETITION_CONFIG_FILE)
         self._profiles: dict[str, list[dict]] = {}
+        self._competition_profiles: dict[str, dict[str, float]] = {
+            lvl: vals.copy() for lvl, vals in DEFAULT_COMPETITION_PROFILES.items()
+        }
         self._competition_levels_by_student: dict[str, str] = {}
         self._current_student = "Student 1"
         self._competition_level = DEFAULT_COMPETITION_LEVEL
@@ -1202,6 +1507,7 @@ class TennisDashboard(QMainWindow):
 
         self._build_ui()
         self._apply_style()
+        self._load_competition_profiles_config()
         self._load_profiles()
         self._refresh_profile_ui()
         self._refresh_comparison_labels()
@@ -1255,35 +1561,12 @@ class TennisDashboard(QMainWindow):
         hh.addLayout(title_col)
         hh.addStretch(1)
 
-        level_wrap = QFrame()
-        level_wrap.setObjectName("LevelWrap")
-        level_lay = QVBoxLayout(level_wrap)
-        level_lay.setContentsMargins(0, 0, 0, 0)
-        level_lay.setSpacing(2)
-        lvl_lbl = QLabel("LEVEL")
-        lvl_lbl.setObjectName("SmallMuted")
-        level_lay.addWidget(lvl_lbl)
-        level_row = QHBoxLayout()
-        level_row.setContentsMargins(0, 0, 0, 0)
-        level_row.setSpacing(4)
-        self._level_button_group = QButtonGroup(self)
-        self._level_button_group.setExclusive(True)
-        self._level_buttons: dict[str, QPushButton] = {}
-        for level, txt in (
-            ("Newbie", "NEWBIE"),
-            ("Competitive", "COMPETITIVE"),
-            ("Professional", "PRO"),
-        ):
-            b = QPushButton(txt)
-            b.setObjectName("LevelBtn")
-            b.setCheckable(True)
-            b.setMinimumWidth(84 if level == "Competitive" else 68)
-            b.clicked.connect(lambda checked, lv=level: self._on_main_level_toggle(checked, lv))
-            self._level_button_group.addButton(b)
-            self._level_buttons[level] = b
-            level_row.addWidget(b)
-        level_lay.addLayout(level_row)
-        hh.addWidget(level_wrap)
+        self.level_chip = QPushButton("LEVEL\nCOMPETITIVE")
+        self.level_chip.setObjectName("ChipLevel")
+        self.level_chip.setMinimumWidth(120)
+        self.level_chip.clicked.connect(self._cycle_competition_level)
+        self.level_chip.setToolTip("Click to change level")
+        hh.addWidget(self.level_chip)
 
         self.mode_chip = QLabel("MODE\nSIMULATION")
         self.mode_chip.setObjectName("ChipOk")
@@ -1516,7 +1799,7 @@ class TennisDashboard(QMainWindow):
             if isinstance(raw_levels, dict):
                 levels: dict[str, str] = {}
                 for k, v in raw_levels.items():
-                    if isinstance(k, str) and isinstance(v, str) and v in COMPETITION_PROFILES:
+                    if isinstance(k, str) and isinstance(v, str) and v in self._competition_profiles:
                         levels[k] = v
                 self._competition_levels_by_student = levels
             else:
@@ -1532,6 +1815,59 @@ class TennisDashboard(QMainWindow):
         self._competition_level = self._competition_levels_by_student.get(
             self._current_student, DEFAULT_COMPETITION_LEVEL
         )
+        if self._competition_level not in self._competition_profiles:
+            self._competition_level = DEFAULT_COMPETITION_LEVEL
+
+    def _load_competition_profiles_config(self):
+        self._competition_profiles = {
+            lvl: vals.copy() for lvl, vals in DEFAULT_COMPETITION_PROFILES.items()
+        }
+        if not self._competition_config_path.exists():
+            return
+        try:
+            payload = json.loads(self._competition_config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        for level, defaults in DEFAULT_COMPETITION_PROFILES.items():
+            candidate = payload.get(level)
+            if not isinstance(candidate, dict):
+                continue
+            for key, default_val in defaults.items():
+                raw = candidate.get(key, default_val)
+                if isinstance(raw, (int, float)):
+                    self._competition_profiles[level][key] = float(raw)
+        self._sanitize_competition_profiles()
+
+    def _save_competition_profiles_config(self):
+        self._sanitize_competition_profiles()
+        self._competition_config_path.write_text(
+            json.dumps(self._competition_profiles, indent=2),
+            encoding="utf-8",
+        )
+
+    def _sanitize_competition_profiles(self):
+        for level, defaults in DEFAULT_COMPETITION_PROFILES.items():
+            current = self._competition_profiles.setdefault(level, {})
+            for key, default_val in defaults.items():
+                v = current.get(key, default_val)
+                if not isinstance(v, (int, float)):
+                    current[key] = float(default_val)
+                else:
+                    current[key] = float(v)
+            for min_key, max_key in (
+                ("sim_speed_min", "sim_speed_max"),
+                ("sim_spin_min", "sim_spin_max"),
+                ("live_speed_min", "live_speed_max"),
+                ("live_spin_min", "live_spin_max"),
+            ):
+                if current[min_key] > current[max_key]:
+                    current[min_key], current[max_key] = current[max_key], current[min_key]
+            if current["sim_impact_abs"] < 1:
+                current["sim_impact_abs"] = defaults["sim_impact_abs"]
+            if current["live_arm_abs"] < 1:
+                current["live_arm_abs"] = defaults["live_arm_abs"]
 
     def _save_profiles(self):
         payload = {
@@ -1553,21 +1889,76 @@ class TennisDashboard(QMainWindow):
         self._competition_level = self._competition_levels_by_student.get(
             self._current_student, DEFAULT_COMPETITION_LEVEL
         )
+        if self._competition_level not in self._competition_profiles:
+            self._competition_level = DEFAULT_COMPETITION_LEVEL
         self._refresh_competition_toggle()
         if self._stats_window is not None:
             self._stats_window.refresh()
 
     def _refresh_competition_toggle(self):
-        if not hasattr(self, "_level_buttons"):
+        if not hasattr(self, "level_chip"):
             return
-        for level, btn in self._level_buttons.items():
-            btn.blockSignals(True)
-            btn.setChecked(level == self._competition_level)
-            btn.blockSignals(False)
+        short = {
+            "Newbie": "NEWBIE",
+            "Competitive": "COMPETITIVE",
+            "Professional": "PRO",
+        }.get(self._competition_level, self._competition_level.upper())
+        self.level_chip.setText(f"LEVEL\n{short}")
+        palette = {
+            "Newbie": {
+                "border": "#2b5f8f",
+                "bg": "#0a2943",
+                "hover": "#10375a",
+                "fg": "#8fd0ff",
+            },
+            "Competitive": {
+                "border": "#8a6a2a",
+                "bg": "#2a2210",
+                "hover": "#3a2c12",
+                "fg": "#ffd78a",
+            },
+            "Professional": {
+                "border": "#2a6c54",
+                "bg": "#05291f",
+                "hover": "#083629",
+                "fg": "#8ff0af",
+            },
+        }.get(
+            self._competition_level,
+            {
+                "border": "#2a6c54",
+                "bg": "#05291f",
+                "hover": "#083629",
+                "fg": "#8ff0af",
+            },
+        )
+        self.level_chip.setStyleSheet(
+            f"""
+            QPushButton {{
+                border: 1px solid {palette['border']};
+                border-radius: 7px;
+                padding: 6px;
+                font-size: 10px;
+                font-weight: 800;
+                color: {palette['fg']};
+                background: {palette['bg']};
+            }}
+            QPushButton:hover {{
+                background: {palette['hover']};
+            }}
+            """
+        )
 
-    def _on_main_level_toggle(self, checked: bool, level: str):
-        if checked:
-            self._set_competition_level(level)
+    def _cycle_competition_level(self):
+        levels = list(self._competition_profiles.keys())
+        if not levels:
+            return
+        try:
+            idx = levels.index(self._competition_level)
+        except ValueError:
+            idx = 0
+        next_level = levels[(idx + 1) % len(levels)]
+        self._set_competition_level(next_level)
 
     def _on_profile_selected(self, name: str):
         if not name:
@@ -1630,10 +2021,12 @@ class TennisDashboard(QMainWindow):
         return f"{delta:+.1f}{suffix}"
 
     def _current_competition_profile(self) -> dict[str, float]:
-        return COMPETITION_PROFILES.get(self._competition_level, COMPETITION_PROFILES[DEFAULT_COMPETITION_LEVEL])
+        return self._competition_profiles.get(
+            self._competition_level, self._competition_profiles[DEFAULT_COMPETITION_LEVEL]
+        )
 
     def _set_competition_level(self, level: str):
-        if level not in COMPETITION_PROFILES:
+        if level not in self._competition_profiles:
             return
         self._competition_level = level
         self._competition_levels_by_student[self._current_student] = level
@@ -1787,6 +2180,7 @@ class TennisDashboard(QMainWindow):
             self._settings_window = SettingsWindow(self)
             self._settings_window.setStyleSheet(self.styleSheet())
         self._refresh_calibration_ui()
+        self._settings_window.refresh()
         self._settings_window.show()
         self._settings_window.raise_()
         self._settings_window.activateWindow()
@@ -1871,19 +2265,11 @@ class TennisDashboard(QMainWindow):
                 color: #d6e8fb;
                 selection-background-color: #17406c;
             }
-            QPushButton#LevelBtn {
-                background: #0d2b4a;
-                border: 1px solid #2c5a87;
-                border-radius: 6px;
-                padding: 4px 7px;
-                font-size: 9px;
+            #ChipLevel {
+                border-radius: 7px;
+                padding: 6px;
+                font-size: 10px;
                 font-weight: 800;
-                color: #b9cde3;
-            }
-            QPushButton#LevelBtn:checked {
-                background: #1f7f4a;
-                border-color: #4fbf7a;
-                color: #f1fff6;
             }
             QPushButton#PrimaryBtn {
                 background: #2f7d2b; border: 1px solid #4da24a; color: #f1fff0;
@@ -1892,6 +2278,32 @@ class TennisDashboard(QMainWindow):
             QPushButton#IconBtn {
                 background: #0d2d50; border: 1px solid #2d5886; border-radius: 5px;
                 padding: 0px; font-size: 12px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #1a3f66;
+                background: #061427;
+                border-radius: 7px;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #0a1f38;
+                border: 1px solid #1a3f66;
+                border-bottom: none;
+                color: #9bb7d3;
+                padding: 6px 12px;
+                margin-right: 4px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QTabBar::tab:selected {
+                background: #103154;
+                color: #dbeaff;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #12375d;
+                color: #c7dcf5;
             }
             QTableWidget {
                 background: #061427;
