@@ -1360,12 +1360,15 @@ class SettingsWindow(QWidget):
         self.cal_counts_input = QLineEdit("410.0")
         self.cal_impact_input = QLineEdit("4200")
         self.cal_contact_input = QLineEdit("1500")
+        self.cal_min_valid_input = QLineEdit("250")
         cal_grid.addWidget(QLabel("Counts per G"), 0, 0)
         cal_grid.addWidget(self.cal_counts_input, 0, 1)
         cal_grid.addWidget(QLabel("mg @ 100%"), 1, 0)
         cal_grid.addWidget(self.cal_impact_input, 1, 1)
         cal_grid.addWidget(QLabel("contact full-scale mg"), 2, 0)
         cal_grid.addWidget(self.cal_contact_input, 2, 1)
+        cal_grid.addWidget(QLabel("min valid impact mg"), 3, 0)
+        cal_grid.addWidget(self.cal_min_valid_input, 3, 1)
         cal_lay.addLayout(cal_grid)
         cal_btns = QHBoxLayout()
         self.btn_cal_load = QPushButton("LOAD FW")
@@ -1472,12 +1475,20 @@ class SettingsWindow(QWidget):
             self.cal_counts_input.text(),
             self.cal_impact_input.text(),
             self.cal_contact_input.text(),
+            self.cal_min_valid_input.text(),
         )
 
-    def set_calibration_values(self, counts_per_g: float, impact_mg_100: int, contact_full_scale_mg: int):
+    def set_calibration_values(
+        self,
+        counts_per_g: float,
+        impact_mg_100: int,
+        contact_full_scale_mg: int,
+        min_valid_impact_mg: int,
+    ):
         self.cal_counts_input.setText(f"{counts_per_g:.2f}")
         self.cal_impact_input.setText(str(int(impact_mg_100)))
         self.cal_contact_input.setText(str(int(contact_full_scale_mg)))
+        self.cal_min_valid_input.setText(str(int(min_valid_impact_mg)))
 
     def set_calibration_status(self, text: str):
         self.lbl_cal_status.setText(text)
@@ -1711,7 +1722,7 @@ class SettingsWindow(QWidget):
 class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int)
-    impact = pyqtSignal(int, int, int, int, int, int, int)
+    impact = pyqtSignal(int, int, int, int, int, int, int, int, int)
     command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
@@ -1878,9 +1889,17 @@ class TennisBleWorker(QObject):
             self.telemetry.emit(-1, -1, int(struct.unpack("<H", bytes(data[:2]))[0]))
 
     def _on_impact(self, _sender, data: bytearray):
-        if len(data) >= 13:
+        if len(data) >= 16:
+            hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, flags = struct.unpack(
+                "<IhhhHBbbB", bytes(data[:16])
+            )
+            valid = 1 if (flags & 0x01) else 0
+            self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
+        elif len(data) >= 13:
             hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y = struct.unpack("<IhhhBbb", bytes(data[:13]))
-            self.impact.emit(hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y)
+            mag_mg = int(math.sqrt(float(x_mg * x_mg + y_mg * y_mg + z_mg * z_mg)))
+            valid = 1 if intensity > 0 else 0
+            self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
 
 
 class TennisDashboard(QMainWindow):
@@ -1919,6 +1938,7 @@ class TennisDashboard(QMainWindow):
             "counts_per_g": 410.0,
             "impact_mg_100": 4200,
             "contact_full_scale_mg": 1500,
+            "min_valid_impact_mg": 250,
         }
 
         self._build_ui()
@@ -2490,6 +2510,7 @@ class TennisDashboard(QMainWindow):
                 self._fw_calibration["counts_per_g"],
                 int(self._fw_calibration["impact_mg_100"]),
                 int(self._fw_calibration["contact_full_scale_mg"]),
+                int(self._fw_calibration["min_valid_impact_mg"]),
             )
 
     def _send_worker_command(self, text: str) -> bool:
@@ -2503,20 +2524,32 @@ class TennisDashboard(QMainWindow):
         if self._send_worker_command(CAL_GET_COMMAND):
             self._set_calibration_status("Requested calibration from firmware...")
 
-    def _apply_firmware_calibration_from_ui(self, counts_txt: str, impact_txt: str, contact_txt: str):
+    def _apply_firmware_calibration_from_ui(
+        self,
+        counts_txt: str,
+        impact_txt: str,
+        contact_txt: str,
+        min_valid_txt: str,
+    ):
         try:
             counts_per_g = float(counts_txt)
             impact_mg_100 = int(float(impact_txt))
             contact_full_scale_mg = int(float(contact_txt))
+            min_valid_impact_mg = int(float(min_valid_txt))
         except ValueError:
             self._set_calibration_status("Calibration values invalid.")
             return
 
-        if counts_per_g < 50.0 or impact_mg_100 < 100 or contact_full_scale_mg < 100:
+        if (
+            counts_per_g < 50.0
+            or impact_mg_100 < 100
+            or contact_full_scale_mg < 100
+            or min_valid_impact_mg < 50
+        ):
             self._set_calibration_status("Calibration values out of range.")
             return
 
-        cmd = f"CAL:SET:{counts_per_g:.2f},{impact_mg_100},{contact_full_scale_mg}"
+        cmd = f"CAL:SET:{counts_per_g:.2f},{impact_mg_100},{contact_full_scale_mg},{min_valid_impact_mg}"
         if self._send_worker_command(cmd):
             self._set_calibration_status("Applied calibration in firmware RAM.")
 
@@ -2532,11 +2565,12 @@ class TennisDashboard(QMainWindow):
         if text.startswith("CAL:CFG:"):
             raw = text[len("CAL:CFG:"):]
             parts = raw.split(",")
-            if len(parts) == 3:
+            if len(parts) in (3, 4):
                 try:
                     self._fw_calibration["counts_per_g"] = float(parts[0])
                     self._fw_calibration["impact_mg_100"] = int(parts[1])
                     self._fw_calibration["contact_full_scale_mg"] = int(parts[2])
+                    self._fw_calibration["min_valid_impact_mg"] = int(parts[3]) if len(parts) >= 4 else 250
                     self._refresh_calibration_ui()
                     self._set_calibration_status("Firmware calibration loaded.")
                 except ValueError:
@@ -2951,11 +2985,15 @@ class TennisDashboard(QMainWindow):
         x_mg: int,
         y_mg: int,
         z_mg: int,
+        magnitude_mg: int,
         intensity: int,
         contact_x: int,
         contact_y: int,
+        valid: int,
     ):
-        mag_mg = math.sqrt(float(x_mg * x_mg + y_mg * y_mg + z_mg * z_mg))
+        mag_mg = float(magnitude_mg)
+        if not valid:
+            return
         self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
         self._last_impact_reading = (contact_x, contact_y, intensity)
         if self._settings_window is not None:
@@ -2967,6 +3005,7 @@ class TennisDashboard(QMainWindow):
                     "z_mg": z_mg,
                     "mag_mg": mag_mg,
                     "intensity": intensity,
+                    "valid": bool(valid),
                 }
             )
         if len(self._impact_by_hit_count) > 128:

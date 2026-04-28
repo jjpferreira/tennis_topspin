@@ -17,8 +17,8 @@ Stream fast magnetic trigger data from an ESP32 + **KY-003 magnetic sensor** to 
 - `firmware/include/bluetooth/ble_handler.h`
 - `firmware/src/bluetooth/ble_handler.cpp`
   - BLE singleton with reconnect handling + deferred command queue
-- `firmware/include/sensor/ky003_sensor.h`
-- `firmware/src/sensor/ky003_sensor.cpp`
+- `firmware/include/ky003/ky003_sensor.h`
+- `firmware/src/ky003/ky003_sensor.cpp`
   - KY-003 debounce, edge counting, and rate window logic
 - `python_app/realtime_tennis_monitor.py`
   - PyQt6 + Bleak desktop live monitor

@@ -1,4 +1,4 @@
-#include "../../include/sensor/adxl335_sensor.h"
+#include "../../include/adxl335/adxl335_sensor.h"
 
 #include <cmath>
 
@@ -23,6 +23,12 @@ void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg) {
 }
 
 void ADXL335Sensor::begin() {
+    analogReadResolution(12);
+#if defined(ADC_11db)
+    analogSetPinAttenuation(ADXL335_X_PIN, ADC_11db);
+    analogSetPinAttenuation(ADXL335_Y_PIN, ADC_11db);
+    analogSetPinAttenuation(ADXL335_Z_PIN, ADC_11db);
+#endif
     pinMode(ADXL335_X_PIN, INPUT);
     pinMode(ADXL335_Y_PIN, INPUT);
     pinMode(ADXL335_Z_PIN, INPUT);

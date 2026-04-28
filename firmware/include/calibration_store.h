@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "./sensor/adxl335_sensor.h"
+#include "./adxl335/adxl335_sensor.h"
 
 class CalibrationStore {
 public:

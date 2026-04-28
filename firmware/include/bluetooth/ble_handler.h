@@ -36,9 +36,11 @@ public:
         int16_t xMg,
         int16_t yMg,
         int16_t zMg,
+        uint16_t magnitudeMg,
         uint8_t intensityPct,
         int8_t contactX,
-        int8_t contactY
+        int8_t contactY,
+        bool validImpact
     );
 
     /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */

@@ -13,8 +13,8 @@
 #include "./include/config.h"
 #include "./include/logger.h"
 #include "./include/calibration_store.h"
-#include "./include/sensor/ky003_sensor.h"
-#include "./include/sensor/adxl335_sensor.h"
+#include "./include/ky003/ky003_sensor.h"
+#include "./include/adxl335/adxl335_sensor.h"
 #include "./include/bluetooth/ble_handler.h"
 #if LED_RING_ENABLED
 #include "./include/led/led_handler.h"
@@ -86,6 +86,147 @@ static bool isStreamActive(uint32_t nowMs) {
     return true;
 }
 
+static void applyImpactCalibration(const ImpactCalibration& cfg) {
+    g_impactCalibration = cfg;
+    impactSensor.setCalibration(g_impactCalibration);
+}
+
+static void processControlCommand(const String& cmd, uint32_t nowMs) {
+    if (cmd == "RESET") {
+        sensor.reset();
+        Logger::info("Counter reset command applied");
+        return;
+    }
+    if (cmd == "STREAM:ON") {
+        g_streamEnabled = true;
+        g_lastStreamKeepaliveMs = nowMs;
+        g_streamTimeoutWarned = false;
+        Logger::info("Live stream armed");
+        return;
+    }
+    if (cmd == "STREAM:OFF") {
+        g_streamEnabled = false;
+        Logger::info("Live stream disarmed");
+        return;
+    }
+    if (cmd == "PING") {
+        g_lastStreamKeepaliveMs = nowMs;
+        g_streamTimeoutWarned = false;
+        if (!g_streamEnabled) {
+            g_streamEnabled = true;
+            Logger::info("Live stream auto-armed by keepalive");
+        }
+        bleHandler.notifyCommandAck("PONG");
+        return;
+    }
+    if (cmd == "CAL:GET") {
+        bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+        return;
+    }
+    if (cmd == "CAL:SAVE") {
+        if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
+            bleHandler.notifyCommandAck("CAL:SAVE:OK");
+        } else {
+            bleHandler.notifyCommandAck("CAL:SAVE:ERR");
+        }
+        return;
+    }
+    if (cmd == "CAL:RESET") {
+        applyImpactCalibration(ADXL335Sensor::defaultCalibration());
+        if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
+            bleHandler.notifyCommandAck("CAL:RESET:OK");
+        } else {
+            bleHandler.notifyCommandAck("CAL:RESET:ERR");
+        }
+        bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+        return;
+    }
+    if (cmd.startsWith("CAL:SET:")) {
+        ImpactCalibration incoming = g_impactCalibration;
+        if (parseCalibrationSetCommand(cmd, incoming)) {
+            applyImpactCalibration(incoming);
+            bleHandler.notifyCommandAck("CAL:SET:OK");
+            bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
+        } else {
+            bleHandler.notifyCommandAck("CAL:SET:ERR");
+        }
+        return;
+    }
+    Logger::warn("Unknown command: " + cmd);
+}
+
+static bool runSensorPipeline(uint32_t nowMs) {
+    bool impactEdge = sensor.update(nowMs);
+    impactSensor.update(nowMs);
+    if (impactEdge) {
+        impactSensor.captureImpact(nowMs);
+    }
+    return impactEdge;
+}
+
+static void processBleCommands(uint32_t nowMs) {
+    bleHandler.processReconnect(nowMs);
+    if (!bleHandler.hasDeferredCommand()) {
+        return;
+    }
+    String cmd = bleHandler.takeDeferredCommand();
+    processControlCommand(cmd, nowMs);
+}
+
+static void publishBleTelemetry(uint32_t nowMs, bool impactEdge) {
+    if (!bleHandler.isConnected()) {
+        g_streamEnabled = false;
+        g_streamTimeoutWarned = false;
+        return;
+    }
+
+    static uint32_t lastNotifyMs = 0;
+    if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {
+        lastNotifyMs = nowMs;
+        bleHandler.pushTelemetry(
+            sensor.getState(),
+            sensor.getHitCount(),
+            sensor.getRateX10(nowMs)
+        );
+    }
+
+    if (!impactEdge || !isStreamActive(nowMs)) {
+        return;
+    }
+
+    ImpactSample impact = impactSensor.getLastImpact();
+    if (!impact.valid) {
+        return;
+    }
+
+    bleHandler.pushImpact(
+        sensor.getHitCount(),
+        impact.xMg,
+        impact.yMg,
+        impact.zMg,
+        impact.magnitudeMg,
+        impact.intensityPct,
+        impact.contactX,
+        impact.contactY,
+        impact.valid
+    );
+}
+
+static void updateLedFeedback(uint32_t nowMs) {
+#if LED_RING_ENABLED
+    static uint32_t s_lastLedMs = 0;
+    if ((nowMs - s_lastLedMs) >= LED_UPDATE_INTERVAL_MS) {
+        s_lastLedMs = nowMs;
+        float hitsPerSec =
+            static_cast<float>(sensor.getRateX10(nowMs)) / RATE_X10_SCALE;
+        ledHandler.updateLevel(hitsPerSec);
+        ledHandler.update();
+    }
+#else
+    (void)nowMs;
+#endif
+}
+
 void setup() {
     Serial.begin(115200);
     pinMode(STATUS_LED_PIN, OUTPUT);
@@ -98,7 +239,7 @@ void setup() {
     } else {
         Logger::info("Impact calibration defaults in use");
     }
-    impactSensor.setCalibration(g_impactCalibration);
+    applyImpactCalibration(g_impactCalibration);
     sensor.begin();
     impactSensor.begin();
 #if LED_RING_ENABLED
@@ -112,102 +253,8 @@ void setup() {
 
 void loop() {
     uint32_t now = millis();
-
-    bool impactEdge = sensor.update(now);
-    impactSensor.update(now);
-    if (impactEdge) {
-        impactSensor.captureImpact(now);
-    }
-    bleHandler.processReconnect(now);
-
-    if (bleHandler.hasDeferredCommand()) {
-        String cmd = bleHandler.takeDeferredCommand();
-        if (cmd == "RESET") {
-            sensor.reset();
-            Logger::info("Counter reset command applied");
-        } else if (cmd == "STREAM:ON") {
-            g_streamEnabled = true;
-            g_lastStreamKeepaliveMs = now;
-            g_streamTimeoutWarned = false;
-            Logger::info("Live stream armed");
-        } else if (cmd == "STREAM:OFF") {
-            g_streamEnabled = false;
-            Logger::info("Live stream disarmed");
-        } else if (cmd == "PING") {
-            g_lastStreamKeepaliveMs = now;
-            g_streamTimeoutWarned = false;
-            if (!g_streamEnabled) {
-                g_streamEnabled = true;
-                Logger::info("Live stream auto-armed by keepalive");
-            }
-            bleHandler.notifyCommandAck("PONG");
-        } else if (cmd == "CAL:GET") {
-            bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
-        } else if (cmd == "CAL:SAVE") {
-            if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
-                bleHandler.notifyCommandAck("CAL:SAVE:OK");
-            } else {
-                bleHandler.notifyCommandAck("CAL:SAVE:ERR");
-            }
-        } else if (cmd == "CAL:RESET") {
-            g_impactCalibration = ADXL335Sensor::defaultCalibration();
-            impactSensor.setCalibration(g_impactCalibration);
-            if (CalibrationStore::saveImpactCalibration(g_impactCalibration)) {
-                bleHandler.notifyCommandAck("CAL:RESET:OK");
-            } else {
-                bleHandler.notifyCommandAck("CAL:RESET:ERR");
-            }
-            bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
-        } else if (cmd.startsWith("CAL:SET:")) {
-            ImpactCalibration incoming = g_impactCalibration;
-            if (parseCalibrationSetCommand(cmd, incoming)) {
-                g_impactCalibration = incoming;
-                impactSensor.setCalibration(g_impactCalibration);
-                bleHandler.notifyCommandAck("CAL:SET:OK");
-                bleHandler.notifyCommandAck(impactCalibrationToText(g_impactCalibration).c_str());
-            } else {
-                bleHandler.notifyCommandAck("CAL:SET:ERR");
-            }
-        } else {
-            Logger::warn("Unknown command: " + cmd);
-        }
-    }
-
-    if (!bleHandler.isConnected()) {
-        g_streamEnabled = false;
-        g_streamTimeoutWarned = false;
-    }
-
-    static uint32_t lastNotifyMs = 0;
-    if ((now - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(now)) {
-        lastNotifyMs = now;
-        bleHandler.pushTelemetry(
-            sensor.getState(),
-            sensor.getHitCount(),
-            sensor.getRateX10(now)
-        );
-    }
-    if (impactEdge && isStreamActive(now)) {
-        ImpactSample impact = impactSensor.getLastImpact();
-        bleHandler.pushImpact(
-            sensor.getHitCount(),
-            impact.xMg,
-            impact.yMg,
-            impact.zMg,
-            impact.intensityPct,
-            impact.contactX,
-            impact.contactY
-        );
-    }
-
-#if LED_RING_ENABLED
-    static uint32_t s_lastLedMs = 0;
-    if ((now - s_lastLedMs) >= LED_UPDATE_INTERVAL_MS) {
-        s_lastLedMs = now;
-        float hitsPerSec =
-            static_cast<float>(sensor.getRateX10(now)) / RATE_X10_SCALE;
-        ledHandler.updateLevel(hitsPerSec);
-        ledHandler.update();
-    }
-#endif
+    bool impactEdge = runSensorPipeline(now);
+    processBleCommands(now);
+    publishBleTelemetry(now, impactEdge);
+    updateLedFeedback(now);
 }

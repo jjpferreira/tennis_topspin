@@ -1,4 +1,4 @@
-#include "../../include/sensor/ky003_sensor.h"
+#include "../../include/ky003/ky003_sensor.h"
 
 void KY003Sensor::begin() {
 #if KY003_INPUT_PULLUP

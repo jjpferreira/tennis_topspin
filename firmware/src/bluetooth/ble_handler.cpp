@@ -134,9 +134,11 @@ void BLEHandler::pushImpact(
     int16_t xMg,
     int16_t yMg,
     int16_t zMg,
+    uint16_t magnitudeMg,
     uint8_t intensityPct,
     int8_t contactX,
-    int8_t contactY
+    int8_t contactY,
+    bool validImpact
 ) {
     if (!_connected || !_impactChar) return;
 
@@ -145,17 +147,21 @@ void BLEHandler::pushImpact(
         int16_t xMg;
         int16_t yMg;
         int16_t zMg;
+        uint16_t magnitudeMg;
         uint8_t intensityPct;
         int8_t contactX;
         int8_t contactY;
+        uint8_t flags;
     } payload = {
         hitCount,
         xMg,
         yMg,
         zMg,
+        magnitudeMg,
         intensityPct,
         contactX,
-        contactY
+        contactY,
+        static_cast<uint8_t>(validImpact ? 0x01 : 0x00)
     };
 
     _impactChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));

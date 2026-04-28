@@ -10,10 +10,10 @@ VERSION_H = TENNIS_FW_ROOT / "include" / "firmware_version.h"
 BLE_CONSTANTS_H = TENNIS_FW_ROOT / "include" / "bluetooth" / "ble_constants.h"
 BLE_HANDLER_H = TENNIS_FW_ROOT / "include" / "bluetooth" / "ble_handler.h"
 BLE_HANDLER_CPP = TENNIS_FW_ROOT / "src" / "bluetooth" / "ble_handler.cpp"
-SENSOR_H = TENNIS_FW_ROOT / "include" / "sensor" / "ky003_sensor.h"
-SENSOR_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "ky003_sensor.cpp"
-ADXL_H = TENNIS_FW_ROOT / "include" / "sensor" / "adxl335_sensor.h"
-ADXL_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "adxl335_sensor.cpp"
+SENSOR_H = TENNIS_FW_ROOT / "include" / "ky003" / "ky003_sensor.h"
+SENSOR_CPP = TENNIS_FW_ROOT / "src" / "ky003" / "ky003_sensor.cpp"
+ADXL_H = TENNIS_FW_ROOT / "include" / "adxl335" / "adxl335_sensor.h"
+ADXL_CPP = TENNIS_FW_ROOT / "src" / "adxl335" / "adxl335_sensor.cpp"
 CAL_STORE_H = TENNIS_FW_ROOT / "include" / "calibration_store.h"
 CAL_STORE_CPP = TENNIS_FW_ROOT / "src" / "calibration_store.cpp"
 SKETCH = TENNIS_FW_ROOT / "firmware.ino"
@@ -50,11 +50,15 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
 
     assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);" in ble_handler_h
     assert "void pushImpact(" in ble_handler_h
+    assert "uint16_t magnitudeMg," in ble_handler_h
+    assert "bool validImpact" in ble_handler_h
     assert "void notifyCommandAck(const char* utf8);" in ble_handler_h
     assert "_stateChar->notify();" in ble_handler_cpp
     assert "_countChar->notify();" in ble_handler_cpp
     assert "_rateChar->notify();" in ble_handler_cpp
     assert "_impactChar->notify();" in ble_handler_cpp
+    assert "uint16_t magnitudeMg;" in ble_handler_cpp
+    assert "uint8_t flags;" in ble_handler_cpp
     assert "TENNIS_COMMAND_UUID" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_NOTIFY" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_WRITE" in ble_handler_cpp
@@ -72,12 +76,12 @@ def test_tennis_streaming_is_explicitly_armed_and_keepalive_guarded():
     assert "static bool g_streamEnabled = BLE_STREAM_DEFAULT_ENABLED != 0;" in sketch
     assert "static bool isStreamActive(uint32_t nowMs)" in sketch
     assert "if ((nowMs - g_lastStreamKeepaliveMs) > BLE_STREAM_KEEPALIVE_TIMEOUT_MS)" in sketch
-    assert 'else if (cmd == "STREAM:ON")' in sketch
-    assert 'else if (cmd == "STREAM:OFF")' in sketch
-    assert 'else if (cmd == "PING")' in sketch
+    assert 'if (cmd == "STREAM:ON")' in sketch
+    assert 'if (cmd == "STREAM:OFF")' in sketch
+    assert 'if (cmd == "PING")' in sketch
     assert 'bleHandler.notifyCommandAck("PONG")' in sketch
     assert "if (!bleHandler.isConnected()) {" in sketch
-    assert "&& isStreamActive(now)" in sketch
+    assert "if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {" in sketch
 
 
 def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
@@ -123,6 +127,7 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "void ADXL335Sensor::captureImpact(uint32_t nowMs)" in adxl_cpp
     assert "void ADXL335Sensor::setCalibration(const ImpactCalibration& cfg)" in adxl_cpp
     assert "ImpactCalibration ADXL335Sensor::defaultCalibration()" in adxl_cpp
+    assert "analogReadResolution(12);" in adxl_cpp
     assert "cfg.minValidImpactMg = ADXL335_MIN_VALID_IMPACT_MG;" in adxl_cpp
     assert "const bool validImpact = magMgClamped >= _calibration.minValidImpactMg;" in adxl_cpp
     assert "_lastImpact.magnitudeMg = magMgClamped;" in adxl_cpp
@@ -138,21 +143,24 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "ADXL335Sensor impactSensor;" in sketch
     assert "ImpactCalibration g_impactCalibration" in sketch
     assert "CalibrationStore::loadImpactCalibration" in sketch
-    assert 'else if (cmd == "CAL:GET")' in sketch
-    assert 'else if (cmd == "CAL:SAVE")' in sketch
-    assert 'else if (cmd == "CAL:RESET")' in sketch
-    assert 'else if (cmd.startsWith("CAL:SET:"))' in sketch
+    assert 'if (cmd == "CAL:GET")' in sketch
+    assert 'if (cmd == "CAL:SAVE")' in sketch
+    assert 'if (cmd == "CAL:RESET")' in sketch
+    assert 'if (cmd.startsWith("CAL:SET:"))' in sketch
     assert "out += String(cfg.minValidImpactMg);" in sketch
     assert "long minValidMg = out.minValidImpactMg > 0 ? out.minValidImpactMg : ADXL335_MIN_VALID_IMPACT_MG;" in sketch
-    assert "impactSensor.captureImpact(now);" in sketch
+    assert "impactSensor.captureImpact(nowMs);" in sketch
     assert "bleHandler.pushImpact(" in sketch
+    assert "impact.magnitudeMg," in sketch
+    assert "impact.valid" in sketch
 
 
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():
     sketch = read_text(SKETCH)
     ble_handler_cpp = read_text(BLE_HANDLER_CPP)
 
-    assert "if (bleHandler.hasDeferredCommand()) {" in sketch
+    assert "static void processBleCommands(uint32_t nowMs)" in sketch
+    assert "if (!bleHandler.hasDeferredCommand()) {" in sketch
     assert "String cmd = bleHandler.takeDeferredCommand();" in sketch
     assert "setDeferredCommand(command);" in ble_handler_cpp
     assert "xSemaphoreTake(_cmdMutex, portMAX_DELAY);" in ble_handler_cpp
