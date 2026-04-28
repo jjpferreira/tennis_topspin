@@ -224,7 +224,16 @@ _No open bugs filed. Add `BUG-001` style blocks here when issues are tracked._
 
 ## Completed Features ✅
 
-_No completed items yet._
+### ✅ FEAT-017: ADXL335 impact telemetry and simulator impact visualization
+**Feature ID:** `FEAT-017` | **Status:** `[COMPLETED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-28 | **Completed:** 2026-04-28 | **Last Updated:** 2026-04-28
+
+**Description:** Add ADXL335-based impact capture to firmware and stream impact payloads to the desktop simulator so shot rendering reflects where and how the ball was impacted (including intensity/redness visualization).
+
+**Implementation completed:** Added a modular `ADXL335Sensor` firmware component with baseline sampling and per-hit impact capture; introduced BLE impact characteristic and payload contract; integrated impact packets in the Python monitor to influence live shot generation, display impact metadata, and render red impact intensity cues on court shots; extended history and CSV export with impact fields.
+
+**Related:** FEAT-005 (court visualization), FEAT-006 (telemetry contract), FEAT-007 (firmware integration), FEAT-008 (desktop ingest and render), FEAT-010 (calibration tuning), FEAT-012 (export/history).
+
+**Complexity:** High | **Business Value:** 5
 
 ---
 

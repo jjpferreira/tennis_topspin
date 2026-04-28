@@ -12,6 +12,8 @@ BLE_HANDLER_H = TENNIS_FW_ROOT / "include" / "bluetooth" / "ble_handler.h"
 BLE_HANDLER_CPP = TENNIS_FW_ROOT / "src" / "bluetooth" / "ble_handler.cpp"
 SENSOR_H = TENNIS_FW_ROOT / "include" / "sensor" / "ky003_sensor.h"
 SENSOR_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "ky003_sensor.cpp"
+ADXL_H = TENNIS_FW_ROOT / "include" / "sensor" / "adxl335_sensor.h"
+ADXL_CPP = TENNIS_FW_ROOT / "src" / "sensor" / "adxl335_sensor.cpp"
 SKETCH = TENNIS_FW_ROOT / "firmware.ino"
 
 
@@ -35,14 +37,22 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
     ble_handler_cpp = read_text(BLE_HANDLER_CPP)
 
     assert '#define TENNIS_SERVICE_UUID' in ble_constants
-    for name in ("TENNIS_STATE_UUID", "TENNIS_COUNT_UUID", "TENNIS_RATE_X10_UUID", "TENNIS_COMMAND_UUID"):
+    for name in (
+        "TENNIS_STATE_UUID",
+        "TENNIS_COUNT_UUID",
+        "TENNIS_RATE_X10_UUID",
+        "TENNIS_IMPACT_UUID",
+        "TENNIS_COMMAND_UUID",
+    ):
         assert f"#define {name}" in ble_constants
 
     assert "void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);" in ble_handler_h
+    assert "void pushImpact(" in ble_handler_h
     assert "void notifyCommandAck(const char* utf8);" in ble_handler_h
     assert "_stateChar->notify();" in ble_handler_cpp
     assert "_countChar->notify();" in ble_handler_cpp
     assert "_rateChar->notify();" in ble_handler_cpp
+    assert "_impactChar->notify();" in ble_handler_cpp
     assert "TENNIS_COMMAND_UUID" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_NOTIFY" in ble_handler_cpp
     assert "BLECharacteristic::PROPERTY_WRITE" in ble_handler_cpp
@@ -73,7 +83,7 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     sensor_cpp = read_text(SENSOR_CPP)
     config_h = read_text(CONFIG_H)
 
-    assert "void update(uint32_t nowMs);" in sensor_h
+    assert "bool update(uint32_t nowMs);" in sensor_h
     assert "uint16_t getRateX10(uint32_t nowMs) const;" in sensor_h
     assert "bool shouldCountEdge(uint8_t previous, uint8_t current) const;" in sensor_h
     assert "#define KY003_DEBOUNCE_MS 8u" in config_h
@@ -84,6 +94,25 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "_hitCount++;" in sensor_cpp
     assert "uint32_t cutoff = nowMs - KY003_RATE_WINDOW_MS;" in sensor_cpp
     assert "float rateX10 = (10000.0f * static_cast<float>(inWindow)) / static_cast<float>(KY003_RATE_WINDOW_MS);" in sensor_cpp
+
+
+def test_tennis_impact_sensor_module_is_wired_and_configured():
+    adxl_h = read_text(ADXL_H)
+    adxl_cpp = read_text(ADXL_CPP)
+    sketch = read_text(SKETCH)
+    config = read_text(CONFIG_H)
+
+    assert "#define ADXL335_X_PIN" in config
+    assert "#define ADXL335_Y_PIN" in config
+    assert "#define ADXL335_Z_PIN" in config
+    assert "#define ADXL335_IMPACT_SAMPLES" in config
+    assert "class ADXL335Sensor" in adxl_h
+    assert "struct ImpactSample" in adxl_h
+    assert "void captureImpact(uint32_t nowMs);" in adxl_h
+    assert "void ADXL335Sensor::captureImpact(uint32_t nowMs)" in adxl_cpp
+    assert "ADXL335Sensor impactSensor;" in sketch
+    assert "impactSensor.captureImpact(now);" in sketch
+    assert "bleHandler.pushImpact(" in sketch
 
 
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():

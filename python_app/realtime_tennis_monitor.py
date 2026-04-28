@@ -45,6 +45,7 @@ SENSOR_STATE_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a1"
 HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
 COMMAND_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a4"
+IMPACT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a5"
 NAME_PREFIX = "TENNIS_KY003"
 BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
@@ -131,6 +132,9 @@ class Shot:
     spin: int
     landing_x: float
     landing_y: float
+    impact_x: int = 0
+    impact_y: int = 0
+    impact_redness: int = 0
 
 
 class MetricSlider(QWidget):
@@ -320,6 +324,11 @@ class CourtWidget(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(color)
             p.drawEllipse(end, 3.6, 3.6)
+            if s.impact_redness > 0:
+                glow = QColor("#ff3b3b")
+                glow.setAlpha(40 + int(1.7 * s.impact_redness))
+                p.setBrush(glow)
+                p.drawEllipse(end, 6.6, 6.6)
 
         # Legend
         legend_x = int(court.right() - 88)
@@ -447,9 +456,82 @@ class HeatmapWidget(QWidget):
         return HeatmapWidget._map_point(fl, fr, bl, br, u, v)
 
 
+class TennisBallImpactWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.impact_x = 0
+        self.impact_y = 0
+        self.impact_redness = 0
+        self.setMinimumHeight(178)
+
+    def set_impact(self, impact_x: int, impact_y: int, impact_redness: int):
+        self.impact_x = max(-100, min(100, int(impact_x)))
+        self.impact_y = max(-100, min(100, int(impact_y)))
+        self.impact_redness = max(0, min(100, int(impact_redness)))
+        self.update()
+
+    def paintEvent(self, event):  # noqa: N802
+        del event
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("#071224"))
+
+        size = min(self.width(), self.height()) - 24
+        size = max(size, 70)
+        ball_rect = QRectF(
+            (self.width() - size) * 0.5,
+            (self.height() - size) * 0.5,
+            size,
+            size,
+        )
+
+        ball_grad = QRadialGradient(
+            ball_rect.center().x() - size * 0.2,
+            ball_rect.center().y() - size * 0.24,
+            size * 0.65,
+        )
+        ball_grad.setColorAt(0.0, QColor("#f6ff95"))
+        ball_grad.setColorAt(0.62, QColor("#dcf15f"))
+        ball_grad.setColorAt(1.0, QColor("#95b63a"))
+        p.setPen(QPen(QColor("#d8e88d"), 1.5))
+        p.setBrush(ball_grad)
+        p.drawEllipse(ball_rect)
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        seam_pen = QPen(QColor("#f5ffd7"), 2.2)
+        p.setPen(seam_pen)
+        p.drawArc(ball_rect.adjusted(size * 0.1, size * 0.06, -size * 0.18, -size * 0.06), 70 * 16, 225 * 16)
+        p.drawArc(ball_rect.adjusted(size * 0.18, size * 0.06, -size * 0.1, -size * 0.06), 245 * 16, 225 * 16)
+
+        nx = self.impact_x / 100.0
+        ny = self.impact_y / 100.0
+        cx = ball_rect.center().x() + nx * (size * 0.34)
+        cy = ball_rect.center().y() - ny * (size * 0.34)
+        radius = size * (0.04 + self.impact_redness * 0.0007)
+        radius = max(radius, 5.0)
+
+        if self.impact_redness > 0:
+            glow = QColor("#ff4040")
+            glow.setAlpha(40 + int(1.8 * self.impact_redness))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(glow)
+            p.drawEllipse(QPointF(cx, cy), radius * 1.9, radius * 1.9)
+
+        core = QColor("#ff2d2d")
+        core.setAlpha(130 + int(1.2 * self.impact_redness))
+        p.setPen(QPen(QColor("#ffd6d6"), 1.0))
+        p.setBrush(core)
+        p.drawEllipse(QPointF(cx, cy), radius, radius)
+
+        p.setPen(QColor("#c5d8eb"))
+        p.setFont(QFont("Arial", 8))
+        p.drawText(10, self.height() - 10, f"Impact {self.impact_x:+d}, {self.impact_y:+d} | Redness {self.impact_redness:d}%")
+
+
 class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int)
+    impact = pyqtSignal(int, int, int, int, int, int, int)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
 
@@ -502,6 +584,7 @@ class TennisBleWorker(QObject):
                 await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
                 await self._client.start_notify(RATE_X10_UUID, self._on_rate)
+                await self._client.start_notify(IMPACT_UUID, self._on_impact)
                 await self._client.start_notify(COMMAND_UUID, self._on_command_notify)
                 ping_ok = await self._await_command_ack(
                     STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
@@ -611,6 +694,11 @@ class TennisBleWorker(QObject):
         if len(data) >= 2:
             self.telemetry.emit(-1, -1, int(struct.unpack("<H", bytes(data[:2]))[0]))
 
+    def _on_impact(self, _sender, data: bytearray):
+        if len(data) >= 13:
+            hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y = struct.unpack("<IhhhBbb", bytes(data[:13]))
+            self.impact.emit(hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y)
+
 
 class TennisDashboard(QMainWindow):
     def __init__(self):
@@ -629,6 +717,8 @@ class TennisDashboard(QMainWindow):
         self._worker: TennisBleWorker | None = None
         self._last_keepalive_sent = 0.0
         self._last_stream_recovery = 0.0
+        self._impact_by_hit_count: dict[int, tuple[int, int, int]] = {}
+        self._last_impact_reading = (0, 0, 0)
 
         self._build_ui()
         self._apply_style()
@@ -717,6 +807,12 @@ class TennisDashboard(QMainWindow):
         self.left_current.layout().addWidget(self.ms_speed)
         self.left_current.layout().addWidget(self.ms_angle)
         self.left_current.layout().addWidget(self.ms_spin)
+        self.lbl_impact_xy = QLabel("Impact Offset      +0, +0")
+        self.lbl_impact_red = QLabel("Impact Redness     0%")
+        self.lbl_impact_xy.setObjectName("SmallMuted")
+        self.lbl_impact_red.setObjectName("SmallMuted")
+        self.left_current.layout().addWidget(self.lbl_impact_xy)
+        self.left_current.layout().addWidget(self.lbl_impact_red)
         left_col.addWidget(self.left_current)
 
         self.left_pred = self._panel("PREDICTED LANDING")
@@ -782,9 +878,16 @@ class TennisDashboard(QMainWindow):
         self.heat_panel.layout().addWidget(self.heat_widget)
         lower.addWidget(self.heat_panel, 2)
 
+        self.impact_panel = self._panel("TENNIS BALL IMPACT SIMULATOR")
+        self.impact_widget = TennisBallImpactWidget()
+        self.impact_panel.layout().addWidget(self.impact_widget)
+        lower.addWidget(self.impact_panel, 1)
+
         self.history_panel = self._panel("SHOT HISTORY")
-        self.history_table = QTableWidget(0, 6)
-        self.history_table.setHorizontalHeaderLabels(["#", "TIME", "SPEED (mph)", "ARM ANGLE", "LANDING (X,Y)", "SPIN"])
+        self.history_table = QTableWidget(0, 7)
+        self.history_table.setHorizontalHeaderLabels(
+            ["#", "TIME", "SPEED (mph)", "ARM ANGLE", "LANDING (X,Y)", "SPIN", "IMPACT"]
+        )
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -953,6 +1056,8 @@ class TennisDashboard(QMainWindow):
         self.telemetry.rate_x10 = 0
         self.telemetry.state = 0
         self.play_queue = 0
+        self._impact_by_hit_count.clear()
+        self._last_impact_reading = (0, 0, 0)
         self._refresh_ui(force=True)
 
     def _reset_session(self):
@@ -973,9 +1078,31 @@ class TennisDashboard(QMainWindow):
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["idx", "time", "speed_mph", "arm_angle_deg", "spin_rpm", "landing_x_m", "landing_y_m"])
+            w.writerow([
+                "idx",
+                "time",
+                "speed_mph",
+                "arm_angle_deg",
+                "spin_rpm",
+                "landing_x_m",
+                "landing_y_m",
+                "impact_x_pct",
+                "impact_y_pct",
+                "impact_redness_pct",
+            ])
             for s in self.shots:
-                w.writerow([s.idx, s.timestamp, f"{s.speed:.1f}", f"{s.arm_angle:.1f}", s.spin, f"{s.landing_x:.2f}", f"{s.landing_y:.2f}"])
+                w.writerow([
+                    s.idx,
+                    s.timestamp,
+                    f"{s.speed:.1f}",
+                    f"{s.arm_angle:.1f}",
+                    s.spin,
+                    f"{s.landing_x:.2f}",
+                    f"{s.landing_y:.2f}",
+                    s.impact_x,
+                    s.impact_y,
+                    s.impact_redness,
+                ])
         self.statusBar().showMessage(f"Exported {len(self.shots)} shots to {path}")
 
     def _add_simulated_shot(self):
@@ -984,9 +1111,22 @@ class TennisDashboard(QMainWindow):
         spin = int(random.uniform(500, 1850))
         land_x = max(-3.8, min(3.8, random.gauss(0.0, 1.55)))
         land_y = max(1.2, min(10.8, random.gauss(7.0, 1.8)))
-        self._append_shot(speed, arm, spin, land_x, land_y)
+        impact_x = int(random.uniform(-45, 45))
+        impact_y = int(random.uniform(-45, 45))
+        redness = int(random.uniform(12, 58))
+        self._append_shot(speed, arm, spin, land_x, land_y, impact_x, impact_y, redness)
 
-    def _append_shot(self, speed: float, arm_angle: float, spin: int, landing_x: float, landing_y: float):
+    def _append_shot(
+        self,
+        speed: float,
+        arm_angle: float,
+        spin: int,
+        landing_x: float,
+        landing_y: float,
+        impact_x: int = 0,
+        impact_y: int = 0,
+        impact_redness: int = 0,
+    ):
         shot = Shot(
             idx=(self.shots[-1].idx + 1) if self.shots else 1,
             timestamp=datetime.now().strftime("%H:%M:%S"),
@@ -995,6 +1135,9 @@ class TennisDashboard(QMainWindow):
             spin=spin,
             landing_x=landing_x,
             landing_y=landing_y,
+            impact_x=impact_x,
+            impact_y=impact_y,
+            impact_redness=impact_redness,
         )
         self.shots.append(shot)
         if len(self.shots) > 300:
@@ -1014,6 +1157,7 @@ class TennisDashboard(QMainWindow):
         self._worker.connected.connect(self._on_connected)
         self._worker.ble_handshake.connect(self._on_ble_handshake)
         self._worker.telemetry.connect(self._on_telemetry)
+        self._worker.impact.connect(self._on_impact_packet)
         self._worker.status.connect(self._on_status)
         self._thread.start()
 
@@ -1026,6 +1170,8 @@ class TennisDashboard(QMainWindow):
             self._thread.wait(2000)
         self._thread = None
         self._worker = None
+        self._impact_by_hit_count.clear()
+        self._last_impact_reading = (0, 0, 0)
         self.mode = "SIMULATION"
         self.simulation_enabled = True
         self.mode_chip.setText("MODE\nSIMULATION")
@@ -1061,6 +1207,8 @@ class TennisDashboard(QMainWindow):
         else:
             self.mode = "SIMULATION"
             self.simulation_enabled = True
+            self._impact_by_hit_count.clear()
+            self._last_impact_reading = (0, 0, 0)
             self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
@@ -1069,6 +1217,24 @@ class TennisDashboard(QMainWindow):
 
     def _on_status(self, msg: str):
         self.statusBar().showMessage(msg)
+
+    def _on_impact_packet(
+        self,
+        hit_count: int,
+        x_mg: int,
+        y_mg: int,
+        z_mg: int,
+        intensity: int,
+        contact_x: int,
+        contact_y: int,
+    ):
+        del x_mg, y_mg, z_mg
+        self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
+        self._last_impact_reading = (contact_x, contact_y, intensity)
+        if len(self._impact_by_hit_count) > 128:
+            old = sorted(self._impact_by_hit_count.keys())[:-64]
+            for key in old:
+                self._impact_by_hit_count.pop(key, None)
 
     def _on_telemetry(self, state: int, count: int, rate_x10: int):
         if state >= 0:
@@ -1080,14 +1246,27 @@ class TennisDashboard(QMainWindow):
             self.telemetry.count = count
             if self.mode == "LIVE" and count > prev:
                 steps = min(count - prev, 3)
-                for _ in range(steps):
+                for i in range(steps):
+                    event_count = prev + i + 1
+                    impact = self._impact_by_hit_count.pop(event_count, None)
+                    if impact is None:
+                        impact = self._last_impact_reading
+                    impact_x, impact_y, redness = impact
                     rate = self.telemetry.rate_x10 / 10.0
-                    speed = max(28.0, min(83.0, 27.0 + rate * 4.0 + random.uniform(-2.8, 2.8)))
-                    arm = random.uniform(-30.0, 30.0)
-                    spin = int(max(450, min(2100, 650 + rate * 115 + random.uniform(-100, 130))))
-                    lx = max(-3.8, min(3.8, random.gauss(arm / 25.0, 1.15)))
-                    ly = max(1.1, min(10.8, random.gauss(7.2, 1.5)))
-                    self._append_shot(speed, arm, spin, lx, ly)
+                    speed = max(
+                        28.0,
+                        min(89.0, 27.0 + rate * 4.0 + (redness * 0.14) + random.uniform(-2.2, 2.2)),
+                    )
+                    arm = max(-42.0, min(42.0, random.uniform(-20.0, 20.0) + impact_x * 0.42))
+                    spin = int(
+                        max(
+                            450,
+                            min(2600, 620 + rate * 110 + abs(impact_y) * 10 + random.uniform(-95, 110)),
+                        )
+                    )
+                    lx = max(-3.8, min(3.8, random.gauss(arm / 25.0 + impact_x / 120.0, 1.0)))
+                    ly = max(1.1, min(10.8, random.gauss(7.1 + impact_y / 90.0, 1.4)))
+                    self._append_shot(speed, arm, spin, lx, ly, impact_x, impact_y, redness)
         self.telemetry.ts = time.time()
 
     def _live_stream_guard(self):
@@ -1120,6 +1299,13 @@ class TennisDashboard(QMainWindow):
             self.ms_spin.set_value(latest.spin, "#4a95ff")
             self.lbl_land_x.setText(f"X (Cross Court)   {latest.landing_x:.2f} m")
             self.lbl_land_y.setText(f"Y (Down Court)    {latest.landing_y:.2f} m")
+            self.lbl_impact_xy.setText(f"Impact Offset      {latest.impact_x:+d}, {latest.impact_y:+d}")
+            self.lbl_impact_red.setText(f"Impact Redness     {latest.impact_redness:d}%")
+            self.impact_widget.set_impact(latest.impact_x, latest.impact_y, latest.impact_redness)
+        else:
+            self.lbl_impact_xy.setText("Impact Offset      +0, +0")
+            self.lbl_impact_red.setText("Impact Redness     0%")
+            self.impact_widget.set_impact(0, 0, 0)
 
         total = len(self.shots)
         avg_speed = sum(s.speed for s in self.shots) / total if total else 0.0
@@ -1159,6 +1345,7 @@ class TennisDashboard(QMainWindow):
                 f"{s.arm_angle:.1f}°",
                 f"{s.landing_x:.2f}, {s.landing_y:.2f}",
                 f"{s.spin:d}",
+                f"{s.impact_x:+d},{s.impact_y:+d} {s.impact_redness:d}%",
             ]
             for c, txt in enumerate(values):
                 item = QTableWidgetItem(txt)

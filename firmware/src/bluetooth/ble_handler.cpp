@@ -16,6 +16,7 @@ public:
     void onConnect(BLEServer* pServer) override {
         (void)pServer;
         BLEHandler::getInstance()._connected = true;
+        BLEHandler::getInstance()._reconnectPending = false;
         digitalWrite(STATUS_LED_PIN, HIGH);
     }
 
@@ -37,6 +38,7 @@ BLEHandler::BLEHandler()
       _stateChar(nullptr),
       _countChar(nullptr),
       _rateChar(nullptr),
+      _impactChar(nullptr),
       _commandChar(nullptr),
       _cmdMutex(xSemaphoreCreateMutex()),
       _deferredCommand("") {}
@@ -70,6 +72,12 @@ void BLEHandler::setupCharacteristics() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     _rateChar->addDescriptor(new BLE2902());
+
+    _impactChar = _service->createCharacteristic(
+        TENNIS_IMPACT_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    _impactChar->addDescriptor(new BLE2902());
 
     _commandChar = _service->createCharacteristic(
         TENNIS_COMMAND_UUID,
@@ -119,6 +127,39 @@ void BLEHandler::pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10) 
 
     _rateChar->setValue(reinterpret_cast<uint8_t*>(&rateX10), sizeof(rateX10));
     _rateChar->notify();
+}
+
+void BLEHandler::pushImpact(
+    uint32_t hitCount,
+    int16_t xMg,
+    int16_t yMg,
+    int16_t zMg,
+    uint8_t intensityPct,
+    int8_t contactX,
+    int8_t contactY
+) {
+    if (!_connected || !_impactChar) return;
+
+    struct __attribute__((packed)) ImpactPayload {
+        uint32_t hitCount;
+        int16_t xMg;
+        int16_t yMg;
+        int16_t zMg;
+        uint8_t intensityPct;
+        int8_t contactX;
+        int8_t contactY;
+    } payload = {
+        hitCount,
+        xMg,
+        yMg,
+        zMg,
+        intensityPct,
+        contactX,
+        contactY
+    };
+
+    _impactChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));
+    _impactChar->notify();
 }
 
 void BLEHandler::onDataReceived(const String& command) {

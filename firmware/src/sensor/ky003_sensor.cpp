@@ -11,12 +11,12 @@ void KY003Sensor::begin() {
     _rawChangedAt = millis();
 }
 
-void KY003Sensor::update(uint32_t nowMs) {
+bool KY003Sensor::update(uint32_t nowMs) {
     uint8_t raw = static_cast<uint8_t>(digitalRead(KY003_PIN));
     if (raw != _rawLast) {
         _rawLast = raw;
         _rawChangedAt = nowMs;
-        return;
+        return false;
     }
 
     if (raw != _stableState && (nowMs - _rawChangedAt) >= KY003_DEBOUNCE_MS) {
@@ -25,8 +25,10 @@ void KY003Sensor::update(uint32_t nowMs) {
         if (shouldCountEdge(prev, _stableState)) {
             _hitCount++;
             pushEdgeTime(nowMs);
+            return true;
         }
     }
+    return false;
 }
 
 void KY003Sensor::reset() {

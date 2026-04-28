@@ -13,12 +13,14 @@
 #include "./include/config.h"
 #include "./include/logger.h"
 #include "./include/sensor/ky003_sensor.h"
+#include "./include/sensor/adxl335_sensor.h"
 #include "./include/bluetooth/ble_handler.h"
 #if LED_RING_ENABLED
 #include "./include/led/led_handler.h"
 #endif
 
 KY003Sensor sensor;
+ADXL335Sensor impactSensor;
 BLEHandler& bleHandler = BLEHandler::getInstance();
 #if LED_RING_ENABLED
 LEDHandler& ledHandler = LEDHandler::getInstance();
@@ -50,6 +52,7 @@ void setup() {
     Logger::info(String(APP_NAME) + " " + FIRMWARE_VERSION_DISPLAY + " booting");
 
     sensor.begin();
+    impactSensor.begin();
 #if LED_RING_ENABLED
     ledHandler.begin();
 #endif
@@ -62,7 +65,11 @@ void setup() {
 void loop() {
     uint32_t now = millis();
 
-    sensor.update(now);
+    bool impactEdge = sensor.update(now);
+    impactSensor.update(now);
+    if (impactEdge) {
+        impactSensor.captureImpact(now);
+    }
     bleHandler.processReconnect(now);
 
     if (bleHandler.hasDeferredCommand()) {
@@ -103,6 +110,18 @@ void loop() {
             sensor.getState(),
             sensor.getHitCount(),
             sensor.getRateX10(now)
+        );
+    }
+    if (impactEdge && isStreamActive(now)) {
+        ImpactSample impact = impactSensor.getLastImpact();
+        bleHandler.pushImpact(
+            sensor.getHitCount(),
+            impact.xMg,
+            impact.yMg,
+            impact.zMg,
+            impact.intensityPct,
+            impact.contactX,
+            impact.contactY
         );
     }
 

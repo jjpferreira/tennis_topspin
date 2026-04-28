@@ -8,6 +8,9 @@
 // Hardware pins
 #define STATUS_LED_PIN 2
 #define KY003_PIN 4
+#define ADXL335_X_PIN 34
+#define ADXL335_Y_PIN 35
+#define ADXL335_Z_PIN 32
 
 // KY-003 signal handling
 #define KY003_INPUT_PULLUP 1
@@ -15,6 +18,16 @@
 #define KY003_DEBOUNCE_MS 8u
 #define KY003_RATE_WINDOW_MS 5000u
 #define KY003_EDGE_HISTORY_LEN 256
+
+// ADXL335 impact capture (analog accelerometer)
+#define ADXL335_SAMPLE_INTERVAL_MS 4u
+#define ADXL335_BASELINE_SAMPLES 32u
+#define ADXL335_BASELINE_ALPHA 0.015f
+#define ADXL335_IMPACT_SAMPLES 12u
+#define ADXL335_IMPACT_SAMPLE_SPACING_US 850u
+#define ADXL335_COUNTS_PER_G 410.0f
+#define ADXL335_IMPACT_MG_AT_100 4200
+#define ADXL335_CONTACT_FULL_SCALE_MG 1500
 
 // BLE telemetry pacing
 #define BLE_FAST_NOTIFY_INTERVAL_MS 50u

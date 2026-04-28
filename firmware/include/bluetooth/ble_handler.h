@@ -31,6 +31,15 @@ public:
     bool isConnected() const { return _connected; }
 
     void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10);
+    void pushImpact(
+        uint32_t hitCount,
+        int16_t xMg,
+        int16_t yMg,
+        int16_t zMg,
+        uint8_t intensityPct,
+        int8_t contactX,
+        int8_t contactY
+    );
 
     /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */
     void notifyCommandAck(const char* utf8);
@@ -59,6 +68,7 @@ private:
     BLECharacteristic* _stateChar;
     BLECharacteristic* _countChar;
     BLECharacteristic* _rateChar;
+    BLECharacteristic* _impactChar;
     BLECharacteristic* _commandChar;
 
     SemaphoreHandle_t _cmdMutex;

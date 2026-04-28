@@ -6,7 +6,7 @@
 class KY003Sensor {
 public:
     void begin();
-    void update(uint32_t nowMs);
+    bool update(uint32_t nowMs);
     void reset();
 
     uint8_t getState() const { return _stableState; }

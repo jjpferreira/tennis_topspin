@@ -526,7 +526,7 @@
       "status": "PLANNED",
       "priority": "HIGH",
       "description": "Meet **§16 Recommended MVP**: hardware assumptions (ESP32, Hall on spinner, IMU on arm, magnets); firmware — pulse timing, RPM, IMU read, **structured serial output**; desktop — **live serial input**, **virtual tennis court**, **shot plotting**, **speed and arm metrics** display. Proves reliable sensing, combinable data, and visual simulation concept (**§16**). Aligns with **§18** one-paragraph summary.",
-      "fullBody": "### [PLANNED] [HIGH] FEAT-016: MVP vertical — Hall + IMU, structured serial, live court, shot plotting, metrics\n\n**Feature ID:** `FEAT-016` | **Status:** `[PLANNED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Meet **§16 Recommended MVP**: hardware assumptions (ESP32, Hall on spinner, IMU on arm, magnets); firmware — pulse timing, RPM, IMU read, **structured serial output**; desktop — **live serial input**, **virtual tennis court**, **shot plotting**, **speed and arm metrics** display. Proves reliable sensing, combinable data, and visual simulation concept (**§16**). Aligns with **§18** one-paragraph summary.\n\n**Related:** FEAT-001, FEAT-002, FEAT-004, FEAT-005, FEAT-006, FEAT-007, FEAT-008 (cross-cutting acceptance for first shippable bench demo).\n\n---\n\n## Bugs & Issues\n\n_No open bugs filed. Add `BUG-001` style blocks here when issues are tracked._\n\n---\n\n## Completed Features ✅\n\n_No completed items yet._\n\n---\n\n## Notes\n\n- **Simulator contract:** See **Simulator & pipeline alignment** above — RPM/ω → **speed** conversion is a deliberate product/engineering requirement, not an afterthought.\n- **Out of scope (spec):** free-flight ball tracking, high-speed camera, full physics accuracy, production enclosure, v1 mobile deployment — do not fold into MVP acceptance without explicit scope change.\n- **Risks (§15):** Hall ≠ true ball-flight speed; IMU drift; magnet placement; estimation limits — document in implementation/analysis when relevant.\n- **Parser:** `python3 docs/kaban/parse_features_md.py` from repo root refreshes `docs/kaban/features.json` and `docs/kaban/kanban.html`.",
+      "fullBody": "### [PLANNED] [HIGH] FEAT-016: MVP vertical — Hall + IMU, structured serial, live court, shot plotting, metrics\n\n**Feature ID:** `FEAT-016` | **Status:** `[PLANNED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Meet **§16 Recommended MVP**: hardware assumptions (ESP32, Hall on spinner, IMU on arm, magnets); firmware — pulse timing, RPM, IMU read, **structured serial output**; desktop — **live serial input**, **virtual tennis court**, **shot plotting**, **speed and arm metrics** display. Proves reliable sensing, combinable data, and visual simulation concept (**§16**). Aligns with **§18** one-paragraph summary.\n\n**Related:** FEAT-001, FEAT-002, FEAT-004, FEAT-005, FEAT-006, FEAT-007, FEAT-008 (cross-cutting acceptance for first shippable bench demo).\n\n---\n\n## Bugs & Issues\n\n_No open bugs filed. Add `BUG-001` style blocks here when issues are tracked._\n\n---\n\n## Completed Features ✅",
       "businessValue": "",
       "complexity": "HIGH",
       "complexityScore": 3,
@@ -563,6 +563,48 @@
       ],
       "lastUpdatedDate": "2026-04-23",
       "addedDate": "2026-04-23"
+    },
+    {
+      "id": "item-18",
+      "featureId": "FEAT-017",
+      "title": "FEAT-017: ADXL335 impact telemetry and simulator impact visualization",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "description": "Add ADXL335-based impact capture to firmware and stream impact payloads to the desktop simulator so shot rendering reflects where and how the ball was impacted (including intensity/redness visualization).",
+      "fullBody": "### ✅ FEAT-017: ADXL335 impact telemetry and simulator impact visualization\n**Feature ID:** `FEAT-017` | **Status:** `[COMPLETED]` | **Priority:** `[HIGH]` | **Added:** 2026-04-28 | **Completed:** 2026-04-28 | **Last Updated:** 2026-04-28\n\n**Description:** Add ADXL335-based impact capture to firmware and stream impact payloads to the desktop simulator so shot rendering reflects where and how the ball was impacted (including intensity/redness visualization).\n\n**Implementation completed:** Added a modular `ADXL335Sensor` firmware component with baseline sampling and per-hit impact capture; introduced BLE impact characteristic and payload contract; integrated impact packets in the Python monitor to influence live shot generation, display impact metadata, and render red impact intensity cues on court shots; extended history and CSV export with impact fields.\n\n**Related:** FEAT-005 (court visualization), FEAT-006 (telemetry contract), FEAT-007 (firmware integration), FEAT-008 (desktop ingest and render), FEAT-010 (calibration tuning), FEAT-012 (export/history).\n\n**Complexity:** High | **Business Value:** 5\n\n---\n\n## Notes\n\n- **Simulator contract:** See **Simulator & pipeline alignment** above — RPM/ω → **speed** conversion is a deliberate product/engineering requirement, not an afterthought.\n- **Out of scope (spec):** free-flight ball tracking, high-speed camera, full physics accuracy, production enclosure, v1 mobile deployment — do not fold into MVP acceptance without explicit scope change.\n- **Risks (§15):** Hall ≠ true ball-flight speed; IMU drift; magnet placement; estimation limits — document in implementation/analysis when relevant.\n- **Parser:** `python3 docs/kaban/parse_features_md.py` from repo root refreshes `docs/kaban/features.json` and `docs/kaban/kanban.html`.",
+      "businessValue": "",
+      "complexity": "HIGH",
+      "complexityScore": 3,
+      "businessValueScore": 5,
+      "relatedFeatures": [
+        {
+          "featureId": "FEAT-005",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-006",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-007",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-008",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-010",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-012",
+          "relation": "related"
+        }
+      ],
+      "completedDate": "2026-04-28",
+      "lastUpdatedDate": "2026-04-28",
+      "addedDate": "2026-04-28"
     }
   ]
 }
