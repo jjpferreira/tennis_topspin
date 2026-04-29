@@ -1967,6 +1967,7 @@ class TennisBleWorker(QObject):
         self._pending_cmd_ack: asyncio.Future[str] | None = None
         self._command_char_uuid: str | None = None
         self._command_notify_uuid: str | None = None
+        self._available_char_uuids: set[str] = set()
         self._warned_no_command_channel = False
 
     @staticmethod
@@ -1974,9 +1975,13 @@ class TennisBleWorker(QObject):
         n = needle.lower()
         return any(n in p.lower() for p in props)
 
+    def _has_char(self, uuid: str) -> bool:
+        return uuid.lower() in self._available_char_uuids
+
     async def _resolve_command_characteristics(self):
         self._command_char_uuid = None
         self._command_notify_uuid = None
+        self._available_char_uuids.clear()
         if not self._client:
             return
         try:
@@ -2006,6 +2011,7 @@ class TennisBleWorker(QObject):
             if service.uuid.lower() == TENNIS_SERVICE_UUID.lower():
                 tennis_service_seen = True
             for ch in service.characteristics:
+                self._available_char_uuids.add(ch.uuid.lower())
                 props = [str(p) for p in (ch.properties or [])]
                 is_writable = self._has_prop(props, "write")
                 is_notify = self._has_prop(props, "notify")
@@ -2067,7 +2073,15 @@ class TennisBleWorker(QObject):
                 self._loop.run_until_complete(self._disconnect())
             except Exception:
                 pass
-            self._loop.close()
+            # CoreBluetooth can still deliver disconnect callbacks briefly after
+            # we stop. Keeping the loop open avoids "Event loop is closed"
+            # crashes raised from bleak delegate callbacks on macOS.
+            try:
+                self._loop.run_until_complete(asyncio.sleep(0.15))
+            except Exception:
+                pass
+            asyncio.set_event_loop(None)
+            self._loop = None
 
     async def _main(self):
         while self._running:
@@ -2084,21 +2098,29 @@ class TennisBleWorker(QObject):
                 await self._client.connect()
                 await self._resolve_command_characteristics()
                 self._warned_no_command_channel = False
-                await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
-                await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
-                await self._client.start_notify(RATE_X10_UUID, self._on_rate)
-                try:
+                if self._has_char(SENSOR_STATE_UUID):
+                    await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
+                else:
+                    self.status.emit("State characteristic unavailable on this firmware.")
+                if self._has_char(HIT_COUNT_UUID):
+                    await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
+                else:
+                    self.status.emit("Count characteristic unavailable on this firmware.")
+                if self._has_char(RATE_X10_UUID):
+                    await self._client.start_notify(RATE_X10_UUID, self._on_rate)
+                else:
+                    self.status.emit("Rate characteristic unavailable on this firmware.")
+                if self._has_char(RPM_X10_UUID):
                     await self._client.start_notify(RPM_X10_UUID, self._on_rpm)
-                except Exception:
+                else:
                     self.status.emit("RPM characteristic unavailable on this firmware.")
-                try:
+                if self._has_char(IMPACT_UUID):
                     await self._client.start_notify(IMPACT_UUID, self._on_impact)
-                except Exception:
+                else:
                     self.status.emit("Impact characteristic unavailable on this firmware.")
-                try:
+                if self._has_char(GATE_SPEED_UUID):
                     await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
-                except Exception:
-                    # Backward compatibility with older firmware builds lacking gate speed UUID.
+                else:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
@@ -2315,6 +2337,8 @@ class TennisDashboard(QMainWindow):
         self._drill_hits = 0
         self._drill_attempts = 0
         self._drill_goal_announced = False
+        self._last_count_sample_val = 0
+        self._last_count_sample_ts = 0.0
         self._drill_status_text = "Drill Progress: Off"
         self._shot_intent_override = "Auto"
         self._ui_simple_mode = True
@@ -3879,6 +3903,8 @@ class TennisDashboard(QMainWindow):
         self.telemetry.rpm_x10 = 0
         self.telemetry.state = 0
         self.play_queue = 0
+        self._last_count_sample_val = 0
+        self._last_count_sample_ts = 0.0
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
         self._drill_hits = 0
@@ -4116,6 +4142,7 @@ class TennisDashboard(QMainWindow):
 
     def _on_connected(self, ok: bool, addr: str):
         if ok:
+            self._reset_local_session_data()
             self.mode = "LIVE"
             self.simulation_enabled = False
             self.telemetry.ts = time.time()
@@ -4149,6 +4176,8 @@ class TennisDashboard(QMainWindow):
             self.mode = "SIMULATION"
             self.simulation_enabled = True
             self._last_handshake_ok = False
+            self._last_count_sample_val = 0
+            self._last_count_sample_ts = 0.0
             self.btn_connect.setEnabled(True)
             self.btn_connect.setText("CONNECT SENSOR")
             self._impact_by_hit_count.clear()
@@ -4266,6 +4295,7 @@ class TennisDashboard(QMainWindow):
                 self._impact_by_hit_count.pop(key, None)
 
     def _on_telemetry(self, state: int, count: int, rate_x10: int, rpm_x10: int):
+        now_ts = time.time()
         if state >= 0:
             self.telemetry.state = state
         if rate_x10 >= 0:
@@ -4278,6 +4308,21 @@ class TennisDashboard(QMainWindow):
         if count >= 0:
             prev = self.telemetry.count
             self.telemetry.count = count
+            if (
+                self.mode == "LIVE"
+                and rate_x10 < 0
+                and self._last_count_sample_ts > 0.0
+                and count > self._last_count_sample_val
+            ):
+                dt = now_ts - self._last_count_sample_ts
+                if dt > 0.05:
+                    inferred_rate = (count - self._last_count_sample_val) / dt
+                    self.telemetry.rate_x10 = int(max(0.0, min(6553.5, inferred_rate * 10.0)))
+                    if rpm_x10 < 0:
+                        ppr = max(1, int(self._fw_rpm_pulses_per_rev))
+                        self.telemetry.rpm_x10 = int((self.telemetry.rate_x10 * 60) / ppr)
+            self._last_count_sample_val = count
+            self._last_count_sample_ts = now_ts
             if self.mode == "LIVE" and count > prev:
                 steps = min(count - prev, 3)
                 for i in range(steps):

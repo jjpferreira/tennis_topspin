@@ -72,12 +72,12 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
     assert "void BLEHandler::notifyCommandAck(const char* utf8)" in ble_handler_cpp
 
 
-def test_tennis_streaming_is_explicitly_armed_and_keepalive_guarded():
+def test_tennis_streaming_defaults_to_on_without_keepalive_gate():
     sketch = read_text(SKETCH)
     config = read_text(CONFIG_H)
 
-    assert "#define BLE_STREAM_DEFAULT_ENABLED 0" in config
-    assert "#define BLE_STREAM_REQUIRE_KEEPALIVE 1" in config
+    assert "#define BLE_STREAM_DEFAULT_ENABLED 1" in config
+    assert "#define BLE_STREAM_REQUIRE_KEEPALIVE 0" in config
     assert "#define BLE_STREAM_KEEPALIVE_TIMEOUT_MS 5000u" in config
 
     assert "static bool g_streamEnabled = BLE_STREAM_DEFAULT_ENABLED != 0;" in sketch
