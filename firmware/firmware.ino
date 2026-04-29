@@ -325,11 +325,12 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
     if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {
         lastNotifyMs = nowMs;
         const uint16_t rateX10 = sensor.getRateX10(nowMs);
+        const uint16_t instantRpmX10 = sensor.getInstantRpmX10(nowMs, g_rpmPulsesPerRev);
         bleHandler.pushTelemetry(
             sensor.getState(),
             sensor.getHitCount(),
             rateX10,
-            computeRpmX10(rateX10)
+            instantRpmX10
         );
     }
 

@@ -20,6 +20,10 @@ public:
     uint8_t getState() const { return _stableState; }
     uint32_t getHitCount() const { return _hitCount; }
     uint16_t getRateX10(uint32_t nowMs) const;
+    // Instantaneous RPM*10 from the most recent inter-edge intervals.
+    // Returns 0 if there is no recent activity within `freshnessMs`.
+    uint16_t getInstantRpmX10(uint32_t nowMs, uint16_t pulsesPerRev,
+                              uint32_t freshnessMs = 750u) const;
 
 private:
     void pushEdgeTime(uint32_t nowMs);

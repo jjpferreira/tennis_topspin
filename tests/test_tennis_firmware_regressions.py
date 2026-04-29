@@ -169,7 +169,7 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "ImpactCalibration g_impactCalibration" in sketch
     assert "CalibrationStore::loadImpactCalibration" in sketch
     assert "CalibrationStore::loadRuntimeConfig(g_gateDistanceCm, g_rpmPulsesPerRev)" in sketch
-    assert "computeRpmX10(rateX10)" in sketch
+    assert "sensor.getInstantRpmX10(nowMs, g_rpmPulsesPerRev)" in sketch
     assert "if (cmd == \"GATE:GET\")" in sketch
     assert "if (cmd.startsWith(\"GATE:SET:\"))" in sketch
     assert "if (cmd == \"RPM:GET\")" in sketch

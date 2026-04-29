@@ -2098,29 +2098,20 @@ class TennisBleWorker(QObject):
                 await self._client.connect()
                 await self._resolve_command_characteristics()
                 self._warned_no_command_channel = False
-                if self._has_char(SENSOR_STATE_UUID):
-                    await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
-                else:
-                    self.status.emit("State characteristic unavailable on this firmware.")
-                if self._has_char(HIT_COUNT_UUID):
-                    await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
-                else:
-                    self.status.emit("Count characteristic unavailable on this firmware.")
-                if self._has_char(RATE_X10_UUID):
-                    await self._client.start_notify(RATE_X10_UUID, self._on_rate)
-                else:
-                    self.status.emit("Rate characteristic unavailable on this firmware.")
-                if self._has_char(RPM_X10_UUID):
+                await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
+                await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
+                await self._client.start_notify(RATE_X10_UUID, self._on_rate)
+                try:
                     await self._client.start_notify(RPM_X10_UUID, self._on_rpm)
-                else:
+                except Exception:
                     self.status.emit("RPM characteristic unavailable on this firmware.")
-                if self._has_char(IMPACT_UUID):
+                try:
                     await self._client.start_notify(IMPACT_UUID, self._on_impact)
-                else:
+                except Exception:
                     self.status.emit("Impact characteristic unavailable on this firmware.")
-                if self._has_char(GATE_SPEED_UUID):
+                try:
                     await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
-                else:
+                except Exception:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
@@ -4088,7 +4079,11 @@ class TennisDashboard(QMainWindow):
             self._worker.stop()
         if self._thread and self._thread.isRunning():
             self._thread.quit()
-            self._thread.wait(2000)
+            if not self._thread.wait(3000):
+                # Last-resort guard: avoid Qt aborting with
+                # "QThread: Destroyed while thread is still running".
+                self._thread.terminate()
+                self._thread.wait(1000)
         self._thread = None
         self._worker = None
         self._impact_by_hit_count.clear()
@@ -4226,19 +4221,19 @@ class TennisDashboard(QMainWindow):
                 "Step 2/4 Linking BLE",
                 "Found sensor. Establishing BLE link and subscribing to notifications...",
             )
-        elif "health check ok" in m or "pong" in m:
-            self._set_connect_step_state(2, "done")
-            self._set_connect_step_state(3, "done")
-            self._set_connection_wizard_state(
-                "Step 4/4 Live Stream Ready",
-                "Handshake confirmed. Live telemetry stream is healthy.",
-            )
         elif "no pong" in m:
             self._set_connect_step_state(2, "warn")
             self._set_connect_step_state(3, "done")
             self._set_connection_wizard_state(
                 "Step 3/4 Handshake Warning",
                 "Connected but no PONG health response yet. Firmware may be older.",
+            )
+        elif "health check ok" in m or "pong ✓" in m:
+            self._set_connect_step_state(2, "done")
+            self._set_connect_step_state(3, "done")
+            self._set_connection_wizard_state(
+                "Step 4/4 Live Stream Ready",
+                "Handshake confirmed. Live telemetry stream is healthy.",
             )
         elif "telemetry-only mode" in m:
             if not self._last_handshake_ok:

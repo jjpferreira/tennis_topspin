@@ -67,6 +67,39 @@ uint16_t KY003Sensor::getRateX10(uint32_t nowMs) const {
     return static_cast<uint16_t>(rateX10);
 }
 
+uint16_t KY003Sensor::getInstantRpmX10(uint32_t nowMs, uint16_t pulsesPerRev,
+                                       uint32_t freshnessMs) const {
+    if (_edgeSize < 2 || pulsesPerRev == 0) return 0;
+    size_t newestIdx = (_edgeHead + KY003_EDGE_HISTORY_LEN - 1) % KY003_EDGE_HISTORY_LEN;
+    uint32_t newest = _edgeTimes[newestIdx];
+    if (nowMs - newest > freshnessMs) return 0;
+
+    // Average up to 5 most-recent inter-edge intervals for stability.
+    const size_t maxIntervals = 5;
+    size_t available = _edgeSize > (maxIntervals + 1) ? (maxIntervals + 1) : _edgeSize;
+    uint32_t sumMs = 0;
+    size_t intervals = 0;
+    uint32_t prev = newest;
+    for (size_t i = 1; i < available; i++) {
+        size_t idx = (_edgeHead + KY003_EDGE_HISTORY_LEN - 1 - i) % KY003_EDGE_HISTORY_LEN;
+        uint32_t t = _edgeTimes[idx];
+        if (t == 0 || t > prev) break;
+        uint32_t dt = prev - t;
+        if (dt == 0) continue;
+        sumMs += dt;
+        intervals++;
+        prev = t;
+    }
+    if (intervals == 0 || sumMs == 0) return 0;
+    float avgMs = static_cast<float>(sumMs) / static_cast<float>(intervals);
+    if (avgMs <= 0.0f) return 0;
+    // RPM*10 = (60_000 / avgMs) * 10 / pulsesPerRev
+    float rpmX10 = (600000.0f / avgMs) / static_cast<float>(pulsesPerRev);
+    if (rpmX10 < 0.0f) rpmX10 = 0.0f;
+    if (rpmX10 > 65535.0f) rpmX10 = 65535.0f;
+    return static_cast<uint16_t>(rpmX10);
+}
+
 void KY003Sensor::pushEdgeTime(uint32_t nowMs) {
     _edgeTimes[_edgeHead] = nowMs;
     _edgeHead = (_edgeHead + 1) % KY003_EDGE_HISTORY_LEN;
