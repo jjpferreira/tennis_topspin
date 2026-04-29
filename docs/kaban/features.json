@@ -535,6 +535,45 @@
     },
     {
       "id": "item-17",
+      "featureId": "FEAT-021",
+      "title": "FEAT-021: Heavy ball training mode — hardware-aware drill scoring from speed, spin, and impact quality",
+      "status": "IN-PROGRESS",
+      "priority": "HIGH",
+      "description": "Add a dedicated \"Heavy Ball\" training mode in the desktop app that uses currently available hardware signals (dual-gate speed, hall-derived spin/RPM, ADXL impact quality proxies, and predicted landing depth) to score whether each shot meets heavy-ball intent. Mode must expose clear goal progress, visual target context, and threshold-driven pass/fail behavior suitable for repetition-based coaching.",
+      "fullBody": "### [IN-PROGRESS] [HIGH] FEAT-021: Heavy ball training mode — hardware-aware drill scoring from speed, spin, and impact quality\n\n**Feature ID:** `FEAT-021` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  \n**Complexity:** Medium | **Business Value:** 5\n\n**Description:** Add a dedicated \"Heavy Ball\" training mode in the desktop app that uses currently available hardware signals (dual-gate speed, hall-derived spin/RPM, ADXL impact quality proxies, and predicted landing depth) to score whether each shot meets heavy-ball intent. Mode must expose clear goal progress, visual target context, and threshold-driven pass/fail behavior suitable for repetition-based coaching.\n\n**Analysis:** [FEAT-021 analysis](analysis/FEAT_021_HEAVY_BALL_TRAINING_MODE_ANALYSIS.md)\n\n**Related:** FEAT-017 (impact telemetry), FEAT-019 (spin/cue intelligence), FEAT-020 (drill UX and overlays), FEAT-007 (sensor capture), FEAT-008 (desktop processing).\n\n---",
+      "businessValue": "",
+      "complexity": "MEDIUM",
+      "complexityScore": 2,
+      "businessValueScore": 5,
+      "relatedFeatures": [
+        {
+          "featureId": "FEAT-017",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-019",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-020",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-007",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-008",
+          "relation": "related"
+        }
+      ],
+      "lastUpdatedDate": "2026-04-29",
+      "addedDate": "2026-04-29",
+      "analysisPath": "analysis/FEAT_021_HEAVY_BALL_TRAINING_MODE_ANALYSIS.md",
+      "analysisContent": "# FEAT-021 Analysis — Heavy Ball Training Mode\n\n## Summary\n\nHeavy ball in this prototype is not directly measured as ball mass/force in flight. It is approximated from the hardware signals we already capture and the simulator's derived physics context. The most practical definition for coaching use is a threshold-based combination of:\n\n- pace (gate speed blended into live speed),\n- spin load (RPM/spin proxy),\n- depth (landing position),\n- impact quality proxy (impact redness/intensity from ADXL signal path).\n\nThis is enough to support an actionable drill mode today without new hardware.\n\n## Current Hardware Signals Available\n\n- Main hall sensor path provides rate/RPM-derived rotational metrics.\n- Dual gate hall sensors provide short-distance transit timing and speed estimate.\n- ADXL335 impact pipeline provides contact/intensity proxy that already feeds shot impact redness.\n- Existing shot model produces landing coordinates and context fields (net clearance, bounce kick, spin type).\n\n## Gap Before This Feature\n\n- No dedicated heavy-ball drill mode in the target selector.\n- No heavy-ball-specific hit criteria and goal progression.\n- No heavy-ball target overlay/label in court visualization.\n- Training helper text had no heavy-ball guidance.\n\n## Implementation Approach\n\n1. Add a new drill option `20 Heavy Ball` to target selectors (header chip + app settings training tab).\n2. Add visual target overlay mode for heavy-ball zone.\n3. Define heavy-ball hit criteria using available signals:\n   - speed >= 58 mph\n   - spin >= 1900 rpm-proxy\n   - deep landing (`landing_y >= 7.2`)\n   - central/deep corridor (`abs(landing_x) <= 2.8`)\n   - impact quality proxy (`impact_redness >= 45`)\n4. Reuse existing drill progress tracking (`hits/goal/attempts`) with goal = 20.\n5. Add heavy-ball palette/label in target chip styling and helper text.\n\n## Risks and Notes\n\n- Thresholds are coaching heuristics for this rig; they should remain tunable after field testing.\n- \"Heavy ball\" remains a proxy label in this MVP because we do not directly measure post-bounce opponent difficulty.\n- Criteria may need per-level tuning (Newbie/Competitive/Professional) in a follow-up iteration.\n\n## Acceptance Criteria\n\n- User can select `20 Heavy Ball` in both main target chip and settings training controls.\n- Court shows heavy-ball overlay when mode is active.\n- Drill progress increments only when heavy-ball thresholds are met.\n- UI labels and chip color update correctly for heavy-ball mode.\n- Session summary keeps drill mode/hits/attempts/hit-rate with heavy-ball sessions.\n"
+    },
+    {
+      "id": "item-18",
       "featureId": "FEAT-013",
       "title": "FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility",
       "status": "PLANNED",
@@ -571,7 +610,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-18",
+      "id": "item-19",
       "featureId": "FEAT-014",
       "title": "FEAT-014: Optional transport — BLE streaming to desktop or mobile bridge",
       "status": "IDEA",
@@ -600,7 +639,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-19",
+      "id": "item-20",
       "featureId": "FEAT-015",
       "title": "FEAT-015: Future mobile layer — iOS (or similar) consuming telemetry and court UI",
       "status": "IDEA",
@@ -629,7 +668,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-20",
+      "id": "item-21",
       "featureId": "FEAT-016",
       "title": "FEAT-016: MVP vertical — Hall + IMU, structured serial, live court, shot plotting, metrics",
       "status": "PLANNED",
@@ -674,7 +713,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-21",
+      "id": "item-22",
       "featureId": "FEAT-017",
       "title": "FEAT-017: ADXL335 impact telemetry and simulator impact visualization",
       "status": "COMPLETED",

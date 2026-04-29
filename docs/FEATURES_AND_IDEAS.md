@@ -207,6 +207,19 @@ ESP32:  Hall → RPM / ω          Arm sensor → angle / arm velocity
 
 ---
 
+### [IN-PROGRESS] [HIGH] FEAT-021: Heavy ball training mode — hardware-aware drill scoring from speed, spin, and impact quality
+
+**Feature ID:** `FEAT-021` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  
+**Complexity:** Medium | **Business Value:** 5
+
+**Description:** Add a dedicated "Heavy Ball" training mode in the desktop app that uses currently available hardware signals (dual-gate speed, hall-derived spin/RPM, ADXL impact quality proxies, and predicted landing depth) to score whether each shot meets heavy-ball intent. Mode must expose clear goal progress, visual target context, and threshold-driven pass/fail behavior suitable for repetition-based coaching.
+
+**Analysis:** [FEAT-021 analysis](analysis/FEAT_021_HEAVY_BALL_TRAINING_MODE_ANALYSIS.md)
+
+**Related:** FEAT-017 (impact telemetry), FEAT-019 (spin/cue intelligence), FEAT-020 (drill UX and overlays), FEAT-007 (sensor capture), FEAT-008 (desktop processing).
+
+---
+
 ### [PLANNED] [MEDIUM] FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility
 
 **Feature ID:** `FEAT-013` | **Status:** `[PLANNED]` | **Priority:** `[MEDIUM]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  

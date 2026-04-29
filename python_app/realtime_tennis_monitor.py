@@ -492,6 +492,8 @@ class CourtWidget(QWidget):
             zone_specs.append((-0.7, 0.7, 7.1, 9.8, QColor(255, 215, 138, 78), "SERVE T"))
         elif self.target_overlay_mode == "15 Backhand Topspin":
             zone_specs.append((0.6, 3.2, 6.4, 10.2, QColor(143, 208, 255, 78), "BH TOPSPIN"))
+        elif self.target_overlay_mode == "20 Heavy Ball":
+            zone_specs.append((-2.8, 2.8, 7.3, 10.5, QColor(190, 132, 255, 76), "HEAVY BALL"))
 
         for x1, x2, y1, y2, fill_color, label in zone_specs:
             poly = QPolygonF(
@@ -1596,7 +1598,9 @@ class SettingsWindow(QWidget):
         self.lbl_drill_help = QLabel("Select a target zone objective for current session")
         self.lbl_drill_help.setObjectName("SmallMuted")
         self.train_drill_combo = QComboBox()
-        self.train_drill_combo.addItems(["Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin"])
+        self.train_drill_combo.addItems(
+            ["Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin", "20 Heavy Ball"]
+        )
         drill_lay.addWidget(drill_title)
         drill_lay.addWidget(self.lbl_drill_help)
         drill_lay.addWidget(self.train_drill_combo)
@@ -1712,11 +1716,16 @@ class SettingsWindow(QWidget):
         }.get(self.dashboard._shot_intent_override, "Auto infer or force a stroke type")
         self.lbl_intent_help.setText(intent_help)
 
+        heavy_cfg = self.dashboard._heavy_ball_thresholds()
         drill_help = {
             "Off": "No target gating, free training mode",
             "20 Topspin Cross-Court": "Goal: 20 topspin cross-court hits",
             "15 Serve T": "Goal: 15 serve-T hits with clean clearance",
             "15 Backhand Topspin": "Goal: 15 topspin backhand hits",
+            "20 Heavy Ball": (
+                f"Goal: 20 heavy-ball shots (>= {heavy_cfg['min_speed']:.0f} mph, "
+                f">= {heavy_cfg['min_spin']:.0f} spin, deep + clean impact)"
+            ),
         }.get(self.dashboard._drill_mode, "Select a target zone objective for current session")
         self.lbl_drill_help.setText(drill_help)
 
@@ -2281,6 +2290,7 @@ class TennisDashboard(QMainWindow):
             ("20 Topspin Cross-Court", "TOPSPIN CC"),
             ("15 Serve T", "SERVE T"),
             ("15 Backhand Topspin", "BACKHAND TOPSPIN"),
+            ("20 Heavy Ball", "HEAVY BALL"),
         ):
             btn = QPushButton(label)
             btn.setObjectName("LevelOptionChip")
@@ -2682,7 +2692,7 @@ class TennisDashboard(QMainWindow):
         self.statusBar().showMessage(f"Shot intent set to {self._shot_intent_override}.")
 
     def set_drill_mode(self, mode: str):
-        if mode not in {"Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin"}:
+        if mode not in {"Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin", "20 Heavy Ball"}:
             return
         self._apply_drill_mode(mode, sync_settings=False)
 
@@ -2690,7 +2700,7 @@ class TennisDashboard(QMainWindow):
         self._drill_mode = mode
         if self._drill_mode in {"15 Serve T", "15 Backhand Topspin"}:
             self._drill_goal = 15
-        elif self._drill_mode == "20 Topspin Cross-Court":
+        elif self._drill_mode in {"20 Topspin Cross-Court", "20 Heavy Ball"}:
             self._drill_goal = 20
         else:
             self._drill_goal = 20
@@ -2720,6 +2730,7 @@ class TennisDashboard(QMainWindow):
             "20 Topspin Cross-Court": "TOPSPIN CC",
             "15 Serve T": "SERVE T",
             "15 Backhand Topspin": "BACKHAND",
+            "20 Heavy Ball": "HEAVY BALL",
         }.get(self._drill_mode, self._drill_mode.upper())
         self.target_chip.setText(f"TARGET: {label} ▾")
 
@@ -2728,6 +2739,7 @@ class TennisDashboard(QMainWindow):
             "20 Topspin Cross-Court": {"border": "#2a6c54", "bg": "#05291f", "hover": "#083629", "fg": "#8ff0af"},
             "15 Serve T": {"border": "#8a6a2a", "bg": "#2a2210", "hover": "#3a2c12", "fg": "#ffd78a"},
             "15 Backhand Topspin": {"border": "#2b5f8f", "bg": "#0a2943", "hover": "#10375a", "fg": "#8fd0ff"},
+            "20 Heavy Ball": {"border": "#654299", "bg": "#1e1534", "hover": "#2a1e49", "fg": "#d7c0ff"},
         }.get(
             self._drill_mode,
             {"border": "#3a4d66", "bg": "#102033", "hover": "#15304b", "fg": "#a8bfd8"},
@@ -2763,6 +2775,7 @@ class TennisDashboard(QMainWindow):
             "20 Topspin Cross-Court": {"border": "#2a6c54", "bg": "#05291f", "hover": "#083629", "fg": "#8ff0af"},
             "15 Serve T": {"border": "#8a6a2a", "bg": "#2a2210", "hover": "#3a2c12", "fg": "#ffd78a"},
             "15 Backhand Topspin": {"border": "#2b5f8f", "bg": "#0a2943", "hover": "#10375a", "fg": "#8fd0ff"},
+            "20 Heavy Ball": {"border": "#654299", "bg": "#1e1534", "hover": "#2a1e49", "fg": "#d7c0ff"},
         }
         for mode, btn in self._target_chip_buttons.items():
             pal = per_mode.get(mode, per_mode["Off"])
@@ -2793,7 +2806,33 @@ class TennisDashboard(QMainWindow):
             return shot.shot_type == "Serve" and shot.target_zone_hit and shot.net_clearance_m >= 0.22
         if self._drill_mode == "15 Backhand Topspin":
             return shot.shot_type == "Backhand" and shot.spin_type == "Topspin" and shot.target_zone_hit
+        if self._drill_mode == "20 Heavy Ball":
+            # Heavy ball proxy from available hardware/derived signals.
+            # Thresholds are level-aware so Newbie/Competitive/Professional
+            # coaching targets can progress naturally.
+            cfg = self._heavy_ball_thresholds()
+            return (
+                shot.speed >= cfg["min_speed"]
+                and shot.spin >= cfg["min_spin"]
+                and shot.landing_y >= cfg["min_depth_y"]
+                and abs(shot.landing_x) <= cfg["max_abs_x"]
+                and shot.impact_redness >= cfg["min_impact_redness"]
+            )
         return False
+
+    def _heavy_ball_thresholds(self) -> dict[str, float]:
+        profile = self._competition_profiles.get(
+            self._competition_level, self._competition_profiles[DEFAULT_COMPETITION_LEVEL]
+        )
+        depth_by_level = {"Newbie": 6.9, "Competitive": 7.2, "Professional": 7.5}
+        width_by_level = {"Newbie": 3.0, "Competitive": 2.8, "Professional": 2.5}
+        return {
+            "min_speed": max(42.0, float(profile["target_speed"]) * 0.95),
+            "min_spin": max(1100.0, float(profile["target_spin"]) * 0.90),
+            "min_impact_redness": max(28.0, float(profile["target_impact"]) * 0.85),
+            "min_depth_y": depth_by_level.get(self._competition_level, 7.2),
+            "max_abs_x": width_by_level.get(self._competition_level, 2.8),
+        }
 
     @staticmethod
     def _classify_spin_type(spin: int, impact_y: int) -> str:
