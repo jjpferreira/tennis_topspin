@@ -1969,6 +1969,7 @@ class TennisBleWorker(QObject):
         self._command_notify_uuid: str | None = None
         self._available_char_uuids: set[str] = set()
         self._warned_no_command_channel = False
+        self._diag_counts: dict[str, int] = {}
 
     @staticmethod
     def _has_prop(props: list[str], needle: str) -> bool:
@@ -2232,21 +2233,36 @@ class TennisBleWorker(QObject):
             except asyncio.InvalidStateError:
                 pass
 
+    def _diag(self, key: str, value):
+        # Diagnostic logger: prints first packet of each kind, then every 50th.
+        n = self._diag_counts.get(key, 0) + 1
+        self._diag_counts[key] = n
+        if n == 1 or n % 50 == 0:
+            print(f"[BLE-DIAG] {key} #{n} = {value}", flush=True)
+
     def _on_state(self, _sender, data: bytearray):
         if len(data) >= 1:
-            self.telemetry.emit(int(data[0]), -1, -1, -1)
+            v = int(data[0])
+            self._diag("state", v)
+            self.telemetry.emit(v, -1, -1, -1)
 
     def _on_count(self, _sender, data: bytearray):
         if len(data) >= 4:
-            self.telemetry.emit(-1, int(struct.unpack("<I", bytes(data[:4]))[0]), -1, -1)
+            v = int(struct.unpack("<I", bytes(data[:4]))[0])
+            self._diag("count", v)
+            self.telemetry.emit(-1, v, -1, -1)
 
     def _on_rate(self, _sender, data: bytearray):
         if len(data) >= 2:
-            self.telemetry.emit(-1, -1, int(struct.unpack("<H", bytes(data[:2]))[0]), -1)
+            v = int(struct.unpack("<H", bytes(data[:2]))[0])
+            self._diag("rate_x10", v)
+            self.telemetry.emit(-1, -1, v, -1)
 
     def _on_rpm(self, _sender, data: bytearray):
         if len(data) >= 2:
-            self.telemetry.emit(-1, -1, -1, int(struct.unpack("<H", bytes(data[:2]))[0]))
+            v = int(struct.unpack("<H", bytes(data[:2]))[0])
+            self._diag("rpm_x10", v)
+            self.telemetry.emit(-1, -1, -1, v)
 
     def _on_impact(self, _sender, data: bytearray):
         if len(data) >= 16:
