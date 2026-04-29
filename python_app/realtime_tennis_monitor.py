@@ -2255,18 +2255,12 @@ class TennisDashboard(QMainWindow):
         hh.addLayout(title_col)
         hh.addStretch(1)
 
-        self.level_chip = QPushButton("LEVEL\nCOMPETITIVE ▾")
-        self.level_chip.setObjectName("ChipLevel")
-        self.level_chip.setMinimumWidth(142)
-        self.level_chip.clicked.connect(self._toggle_level_chip_popup)
-        self.level_chip.setToolTip("Select competition level")
-        hh.addWidget(self.level_chip)
+        self._level_chip_buttons: dict[str, QPushButton] = {}
         self.level_chip_popup = QFrame(self, Qt.WindowType.Popup)
         self.level_chip_popup.setObjectName("LevelPopup")
-        popup_lay = QVBoxLayout(self.level_chip_popup)
-        popup_lay.setContentsMargins(8, 8, 8, 8)
-        popup_lay.setSpacing(6)
-        self._level_chip_buttons: dict[str, QPushButton] = {}
+        level_lay = QVBoxLayout(self.level_chip_popup)
+        level_lay.setContentsMargins(8, 8, 8, 8)
+        level_lay.setSpacing(6)
         for level in self._competition_profiles.keys():
             short = {"Newbie": "NEWBIE", "Competitive": "COMPETITIVE", "Professional": "PRO"}.get(
                 level, level.upper()
@@ -2274,14 +2268,8 @@ class TennisDashboard(QMainWindow):
             btn = QPushButton(short)
             btn.setObjectName("LevelOptionChip")
             btn.clicked.connect(lambda _checked=False, lvl=level: self._on_level_chip_selected(lvl))
-            popup_lay.addWidget(btn)
+            level_lay.addWidget(btn)
             self._level_chip_buttons[level] = btn
-        self.target_chip = QPushButton("TARGET\nOFF ▾")
-        self.target_chip.setObjectName("ChipLevel")
-        self.target_chip.setMinimumWidth(150)
-        self.target_chip.clicked.connect(self._toggle_target_chip_popup)
-        self.target_chip.setToolTip("Choose target zone / drill")
-        hh.addWidget(self.target_chip)
         self.target_chip_popup = QFrame(self, Qt.WindowType.Popup)
         self.target_chip_popup.setObjectName("LevelPopup")
         target_lay = QVBoxLayout(self.target_chip_popup)
@@ -2315,6 +2303,16 @@ class TennisDashboard(QMainWindow):
         self.link_chip = QLabel("HANDSHAKE\n—")
         self.link_chip.setObjectName("ChipMuted")
         self.link_chip.setMinimumWidth(102)
+        self.btn_stats_menu = QPushButton("📊")
+        self.btn_stats_menu.setObjectName("IconBtn")
+        self.btn_stats_menu.setFixedSize(30, 22)
+        self.btn_stats_menu.setToolTip("Open Students & Stats")
+        self.btn_stats_menu.clicked.connect(self._open_stats_screen)
+        self.btn_settings_menu = QPushButton("⚙")
+        self.btn_settings_menu.setObjectName("IconBtn")
+        self.btn_settings_menu.setFixedSize(30, 22)
+        self.btn_settings_menu.setToolTip("Settings")
+        self.btn_settings_menu.clicked.connect(self._toggle_settings_popup)
         self.clock_lbl = QLabel("--:--:--\n--- --, ----")
         self.clock_lbl.setObjectName("ClockLabel")
         self.clock_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -2322,6 +2320,8 @@ class TennisDashboard(QMainWindow):
         hh.addWidget(self.mode_chip)
         hh.addWidget(self.sensors_chip)
         hh.addWidget(self.link_chip)
+        hh.addWidget(self.btn_stats_menu)
+        hh.addWidget(self.btn_settings_menu)
         hh.addWidget(self.clock_lbl)
         outer.addWidget(header)
 
@@ -2425,22 +2425,36 @@ class TennisDashboard(QMainWindow):
         self.court_panel = self._panel("VIRTUAL TENNIS COURT")
         # top-right utility icons in panel header area
         icons = QHBoxLayout()
+        header_chip_height = 28
+        self.level_chip = QPushButton("LEVEL: COMPETITIVE ▾")
+        self.level_chip.setObjectName("TargetHeaderBtn")
+        self.level_chip.setMinimumWidth(185)
+        self.level_chip.setFixedHeight(header_chip_height)
+        self.level_chip.setToolTip("Choose competition level")
+        self.level_chip.clicked.connect(self._toggle_level_chip_popup)
+        icons.addWidget(self.level_chip)
         icons.addStretch(1)
-        icon_specs = [
-            ("📊", "Open Students & Stats", self._open_stats_screen),
-            ("🛠", "Open Hardware Settings", self._open_hardware_settings_screen),
-            ("📱", "Open App Settings", self._open_app_settings_screen),
-            ("⤢", "Fullscreen view (coming soon)", None),
-        ]
-        for glyph, tooltip, callback in icon_specs:
-            b = QPushButton(glyph)
-            b.setObjectName("IconBtn")
-            b.setFixedSize(30, 22)
-            b.setToolTip(tooltip)
-            if callback is not None:
-                b.clicked.connect(callback)
-            icons.addWidget(b)
+        self.target_chip = QPushButton("TARGET: OFF ▾")
+        self.target_chip.setObjectName("TargetHeaderBtn")
+        self.target_chip.setMinimumWidth(170)
+        self.target_chip.setFixedHeight(header_chip_height)
+        self.target_chip.setToolTip("Choose target zone / drill")
+        self.target_chip.clicked.connect(self._toggle_target_chip_popup)
+        icons.addWidget(self.target_chip)
         self.court_panel.layout().addLayout(icons)
+        self.settings_popup = QFrame(self, Qt.WindowType.Popup)
+        self.settings_popup.setObjectName("SettingsPopup")
+        settings_lay = QVBoxLayout(self.settings_popup)
+        settings_lay.setContentsMargins(8, 8, 8, 8)
+        settings_lay.setSpacing(6)
+        self.btn_settings_hardware = QPushButton("Hardware Settings")
+        self.btn_settings_hardware.setObjectName("SettingsMenuOption")
+        self.btn_settings_hardware.clicked.connect(self._open_hardware_settings_from_menu)
+        settings_lay.addWidget(self.btn_settings_hardware)
+        self.btn_settings_app = QPushButton("App Settings")
+        self.btn_settings_app.setObjectName("SettingsMenuOption")
+        self.btn_settings_app.clicked.connect(self._open_app_settings_from_menu)
+        settings_lay.addWidget(self.btn_settings_app)
         self.court_widget = CourtWidget()
         self.court_widget.set_target_overlay(self._drill_mode)
         self.court_panel.layout().addWidget(self.court_widget)
@@ -2469,6 +2483,7 @@ class TennisDashboard(QMainWindow):
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.history_table.setColumnWidth(0, 54)
         self.history_table.horizontalHeader().setStretchLastSection(True)
         self.history_panel.layout().addWidget(self.history_table)
         lower.addWidget(self.history_panel, 2)
@@ -2549,16 +2564,20 @@ class TennisDashboard(QMainWindow):
         return box
 
     def _toggle_level_chip_popup(self):
+        if self.target_chip_popup.isVisible():
+            self.target_chip_popup.hide()
+        if hasattr(self, "settings_popup") and self.settings_popup.isVisible():
+            self.settings_popup.hide()
         if self.level_chip_popup.isVisible():
             self.level_chip_popup.hide()
             return
         chip_width = self.level_chip.width()
         chip_height = self.level_chip.height()
-        popup_width = max(170, chip_width + 12)
+        popup_width = max(180, chip_width + 18)
         self.level_chip_popup.setFixedWidth(popup_width)
         for btn in self._level_chip_buttons.values():
             btn.setMinimumWidth(popup_width - 16)
-            btn.setMinimumHeight(chip_height)
+            btn.setFixedHeight(chip_height)
         pos = self.level_chip.mapToGlobal(self.level_chip.rect().bottomLeft())
         self.level_chip_popup.move(pos.x(), pos.y() + 6)
         self.level_chip_popup.adjustSize()
@@ -2567,6 +2586,7 @@ class TennisDashboard(QMainWindow):
     def _on_level_chip_selected(self, level: str):
         self.level_chip_popup.hide()
         if level == self._competition_level:
+            self._refresh_competition_toggle()
             return
         self._set_competition_level(level)
 
@@ -2609,6 +2629,10 @@ class TennisDashboard(QMainWindow):
             w.lbl_training_status.setText(self._drill_status_text)
 
     def _toggle_target_chip_popup(self):
+        if self.level_chip_popup.isVisible():
+            self.level_chip_popup.hide()
+        if hasattr(self, "settings_popup") and self.settings_popup.isVisible():
+            self.settings_popup.hide()
         if self.target_chip_popup.isVisible():
             self.target_chip_popup.hide()
             return
@@ -2618,11 +2642,34 @@ class TennisDashboard(QMainWindow):
         self.target_chip_popup.setFixedWidth(popup_width)
         for btn in self._target_chip_buttons.values():
             btn.setMinimumWidth(popup_width - 16)
-            btn.setMinimumHeight(chip_height)
+            btn.setFixedHeight(chip_height)
         pos = self.target_chip.mapToGlobal(self.target_chip.rect().bottomLeft())
         self.target_chip_popup.move(pos.x(), pos.y() + 6)
         self.target_chip_popup.adjustSize()
         self.target_chip_popup.show()
+
+    def _toggle_settings_popup(self):
+        if self.level_chip_popup.isVisible():
+            self.level_chip_popup.hide()
+        if self.target_chip_popup.isVisible():
+            self.target_chip_popup.hide()
+        if self.settings_popup.isVisible():
+            self.settings_popup.hide()
+            return
+        sender = self.sender()
+        if isinstance(sender, QPushButton):
+            self.settings_popup.adjustSize()
+            pos = sender.mapToGlobal(sender.rect().bottomRight())
+            self.settings_popup.move(pos.x() - self.settings_popup.width(), pos.y() + 6)
+        self.settings_popup.show()
+
+    def _open_hardware_settings_from_menu(self):
+        self.settings_popup.hide()
+        self._open_hardware_settings_screen()
+
+    def _open_app_settings_from_menu(self):
+        self.settings_popup.hide()
+        self._open_app_settings_screen()
 
     def _on_target_chip_selected(self, mode: str):
         self.target_chip_popup.hide()
@@ -2674,7 +2721,7 @@ class TennisDashboard(QMainWindow):
             "15 Serve T": "SERVE T",
             "15 Backhand Topspin": "BACKHAND",
         }.get(self._drill_mode, self._drill_mode.upper())
-        self.target_chip.setText(f"TARGET\n{label} ▾")
+        self.target_chip.setText(f"TARGET: {label} ▾")
 
         active_palette = {
             "Off": {"border": "#3a4d66", "bg": "#102033", "hover": "#15304b", "fg": "#a8bfd8"},
@@ -2690,7 +2737,7 @@ class TennisDashboard(QMainWindow):
             QPushButton {{
                 border: 1px solid {active_palette['border']};
                 border-radius: 7px;
-                padding: 6px;
+                padding: 4px 10px;
                 font-size: 10px;
                 font-weight: 800;
                 color: {active_palette['fg']};
@@ -2931,105 +2978,98 @@ class TennisDashboard(QMainWindow):
             self._stats_window.refresh()
 
     def _refresh_competition_toggle(self):
-        if not hasattr(self, "level_chip"):
+        if not hasattr(self, "_level_chip_buttons") or not self._level_chip_buttons:
             return
-        idx = -1
-        for i, key in enumerate(self._competition_profiles.keys()):
-            if key == self._competition_level:
-                idx = i
-                break
         short = {
             "Newbie": "NEWBIE",
             "Competitive": "COMPETITIVE",
             "Professional": "PRO",
         }.get(self._competition_level, self._competition_level.upper())
-        self.level_chip.setText(f"LEVEL\n{short} ▾")
+        glass_border = "rgba(178, 216, 248, 0.34)"
+        glass_bg = "rgba(235, 246, 255, 0.08)"
+        glass_hover = "rgba(235, 246, 255, 0.16)"
+        glass_fg = "rgba(220, 237, 252, 0.86)"
         level_palettes = {
             "Newbie": {
-                "border": "#2b5f8f",
-                "bg": "#0a2943",
-                "hover": "#10375a",
-                "fg": "#8fd0ff",
+                "border": "rgba(116, 173, 224, 0.40)",
+                "bg": "rgba(44, 120, 180, 0.14)",
+                "hover": "rgba(44, 120, 180, 0.22)",
+                "active_bg": "rgba(44, 120, 180, 0.30)",
+                "fg": "rgba(196, 230, 255, 0.88)",
             },
             "Competitive": {
-                "border": "#8a6a2a",
-                "bg": "#2a2210",
-                "hover": "#3a2c12",
-                "fg": "#ffd78a",
+                "border": "rgba(223, 186, 106, 0.42)",
+                "bg": "rgba(186, 138, 48, 0.14)",
+                "hover": "rgba(186, 138, 48, 0.22)",
+                "active_bg": "rgba(186, 138, 48, 0.30)",
+                "fg": "rgba(255, 229, 176, 0.90)",
             },
             "Professional": {
-                "border": "#2a6c54",
-                "bg": "#05291f",
-                "hover": "#083629",
-                "fg": "#8ff0af",
+                "border": "rgba(124, 214, 180, 0.42)",
+                "bg": "rgba(45, 170, 118, 0.14)",
+                "hover": "rgba(45, 170, 118, 0.22)",
+                "active_bg": "rgba(45, 170, 118, 0.30)",
+                "fg": "rgba(195, 244, 218, 0.90)",
             },
         }
         palette = level_palettes.get(
             self._competition_level,
             {
-                "border": "#2a6c54",
-                "bg": "#05291f",
-                "hover": "#083629",
-                "fg": "#8ff0af",
+                "border": "rgba(124, 214, 180, 0.42)",
+                "bg": "rgba(45, 170, 118, 0.14)",
+                "hover": "rgba(45, 170, 118, 0.22)",
+                "active_bg": "rgba(45, 170, 118, 0.30)",
+                "fg": "rgba(195, 244, 218, 0.90)",
             },
         )
-        self.level_chip.setStyleSheet(
-            f"""
-            QPushButton {{
-                border: 1px solid {palette['border']};
-                border-radius: 7px;
-                padding: 6px;
-                font-size: 10px;
-                font-weight: 800;
-                color: {palette['fg']};
-                background: {palette['bg']};
-            }}
-            QPushButton:hover {{
-                background: {palette['hover']};
-            }}
-            """
-        )
-        self.level_chip_popup.setStyleSheet(
-            """
-            QFrame#LevelPopup {
-                background: #071528;
-                border: 1px solid #1d4369;
-                border-radius: 8px;
-            }
-            QPushButton#LevelOptionChip {
-                border: 1px solid #2a5278;
-                border-radius: 7px;
-                padding: 6px 10px;
-                font-size: 10px;
-                font-weight: 800;
-                color: #cfe6ff;
-                background: #0d2d50;
-                text-align: center;
-            }
-            QPushButton#LevelOptionChip:hover {
-                background: #17406c;
-                border-color: #3a6b97;
-            }
-            """
-        )
+        if hasattr(self, "level_chip"):
+            self.level_chip.setText(f"LEVEL: {short} ▾")
+            self.level_chip.setStyleSheet(
+                f"""
+                QPushButton {{
+                    border: 1px solid {palette['border']};
+                    border-radius: 7px;
+                    padding: 4px 10px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    color: {palette['fg']};
+                    background: {palette['bg']};
+                }}
+                QPushButton:hover {{
+                    background: {palette['hover']};
+                }}
+                """
+            )
+        if hasattr(self, "level_chip_popup"):
+            self.level_chip_popup.setStyleSheet(
+                """
+                QFrame#LevelPopup {
+                    background: #071528;
+                    border: 1px solid #1d4369;
+                    border-radius: 8px;
+                }
+                """
+            )
         for level, btn in self._level_chip_buttons.items():
             option_palette = level_palettes.get(level, palette)
-            is_active = level == self._competition_level
             border = option_palette["border"]
             bg = option_palette["bg"]
             fg = option_palette["fg"]
             hover = option_palette["hover"]
+            active_bg = option_palette["active_bg"]
+            is_active = level == self._competition_level
+            btn.setChecked(is_active)
             if level == self._competition_level:
                 btn.setStyleSheet(
                     f"""
                     QPushButton {{
                         border: 2px solid {border};
-                        border-radius: 7px;
-                        padding: 6px 10px;
+                        border-radius: 10px;
+                        padding: 7px 10px;
                         font-size: 10px;
                         font-weight: 900;
                         color: {fg};
-                        background: {bg};
+                        background: {active_bg};
                         text-align: center;
                     }}
                     QPushButton:hover {{
@@ -3041,17 +3081,17 @@ class TennisDashboard(QMainWindow):
                 btn.setStyleSheet(
                     f"""
                     QPushButton {{
-                        border: 1px solid {border};
-                        border-radius: 7px;
-                        padding: 6px 10px;
+                        border: 1px solid {glass_border};
+                        border-radius: 10px;
+                        padding: 7px 10px;
                         font-size: 10px;
                         font-weight: 800;
-                        color: {fg};
-                        background: {bg};
+                        color: {glass_fg};
+                        background: {glass_bg};
                         text-align: center;
                     }}
                     QPushButton:hover {{
-                        background: {hover};
+                        background: {glass_hover};
                     }}
                     """
                 )
@@ -3440,6 +3480,18 @@ class TennisDashboard(QMainWindow):
                 font-size: 10px;
                 font-weight: 800;
             }
+            QPushButton#TargetHeaderBtn {
+                border: 1px solid #3a4d66;
+                border-radius: 7px;
+                padding: 4px 10px;
+                font-size: 10px;
+                font-weight: 800;
+                color: #a8bfd8;
+                background: #102033;
+            }
+            QPushButton#TargetHeaderBtn:hover {
+                background: #15304b;
+            }
             QPushButton#PrimaryBtn {
                 background: #2f7d2b; border: 1px solid #4da24a; color: #f1fff0;
             }
@@ -3447,6 +3499,26 @@ class TennisDashboard(QMainWindow):
             QPushButton#IconBtn {
                 background: #0d2d50; border: 1px solid #2d5886; border-radius: 5px;
                 padding: 0px; font-size: 12px;
+            }
+            QFrame#SettingsPopup {
+                background: #071528;
+                border: 1px solid #1d4369;
+                border-radius: 8px;
+            }
+            QPushButton#SettingsMenuOption {
+                background: #0d2d50;
+                border: 1px solid #2a5278;
+                border-radius: 7px;
+                padding: 6px 10px;
+                font-size: 10px;
+                font-weight: 800;
+                color: #cfe6ff;
+                text-align: left;
+                min-width: 154px;
+            }
+            QPushButton#SettingsMenuOption:hover {
+                background: #17406c;
+                border-color: #3a6b97;
             }
             QTabWidget::pane {
                 border: 1px solid #1a3f66;
