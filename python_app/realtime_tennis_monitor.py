@@ -12,7 +12,10 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import logging
+import logging.handlers
 import math
+import os
 import random
 import signal
 import struct
@@ -22,6 +25,77 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Logging setup
+#
+# The app uses three named loggers so log lines tell you which subsystem they
+# came from:
+#   - tennis.app    — top-level lifecycle, main(), shutdown
+#   - tennis.ble    — BleakClient connect/disconnect, GATT enumeration, notifies
+#   - tennis.ui     — dashboard widgets, popups, reactions to BLE events
+#
+# Output:
+#   - Console (stderr): INFO+ by default, DEBUG if TENNIS_LOG_DEBUG=1
+#   - Rotating file:    DEBUG always, in
+#                       <repo>/python_app/logs/tennis_monitor.log
+#                       (5 MB × 5 backups). Override the directory with
+#                       TENNIS_LOG_DIR=/path/to/dir.
+#
+# Why so much DEBUG to disk?
+#   When BLE/macOS GATT issues bite, the operator can attach the file to a
+#   bug report and we get a complete picture without needing to reproduce.
+# ---------------------------------------------------------------------------
+log = logging.getLogger("tennis.app")
+ble_log = logging.getLogger("tennis.ble")
+ui_log = logging.getLogger("tennis.ui")
+
+
+def configure_logging() -> Path:
+    """Initialise console + rotating-file handlers. Returns the log file path
+    so callers can show it to the user. Idempotent."""
+    root = logging.getLogger("tennis")
+    if getattr(root, "_tennis_configured", False):
+        return Path(getattr(root, "_tennis_log_path", ""))
+    root.setLevel(logging.DEBUG)
+    root.propagate = False
+
+    fmt = logging.Formatter(
+        "%(asctime)s.%(msecs)03d %(levelname)-7s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Console — terse by default so the terminal stays readable, verbose when
+    # the operator opts in.
+    console = logging.StreamHandler(stream=sys.stderr)
+    console_level = logging.DEBUG if os.environ.get("TENNIS_LOG_DEBUG") == "1" else logging.INFO
+    console.setLevel(console_level)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # File — always DEBUG. Rotated so a long session doesn't grow unbounded.
+    log_dir_env = os.environ.get("TENNIS_LOG_DIR")
+    log_dir = Path(log_dir_env) if log_dir_env else Path(__file__).resolve().parent / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "tennis_monitor.log"
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
+    except Exception as exc:
+        # Never let a logging-setup failure crash the app.
+        root.warning("Could not open log file in %s: %s — file logging disabled", log_dir, exc)
+        log_path = Path()
+
+    root._tennis_configured = True  # type: ignore[attr-defined]
+    root._tennis_log_path = str(log_path)  # type: ignore[attr-defined]
+    return log_path
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
@@ -50,7 +124,7 @@ from PyQt6.QtWidgets import (
 )
 
 # BLE UUIDs (must match firmware)
-TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914b"  # advertised; ble_constants.h
+TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914c"  # advertised; ble_constants.h
 SENSOR_STATE_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a1"
 HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
@@ -188,30 +262,35 @@ def _device_local_name(device: BLEDevice, adv: AdvertisementData | None) -> str 
 
 
 def _tennis_device_rank(device: BLEDevice, adv: AdvertisementData | None) -> int:
-    """Prefer firmware-like advertisers (service UUID) over name-only matches."""
+    """Score a candidate against the strict tennis naming convention.
+
+    Rules (intentionally strict — we never connect to anything that isn't
+    clearly our firmware):
+      * Local name MUST start with NAME_PREFIX (e.g. "TENNIS_KY003"). No name
+        match → rank 0 → excluded.
+      * Among name-matching devices, prefer those that ALSO advertise the
+        tennis service UUID (better confidence) and break ties by RSSI.
+    """
     nm = _device_local_name(device, adv)
     name_ok = bool(nm and nm.startswith(NAME_PREFIX))
+    if not name_ok:
+        return 0  # strict: name prefix is mandatory
     svc_ok = _adv_has_tennis_service(adv)
     rssi = adv.rssi if adv is not None else -999
-    if name_ok and svc_ok:
-        return 400 + rssi
-    if svc_ok:
-        return 300 + rssi
-    if name_ok:
-        return 200 + rssi
-    return 0
+    return (400 if svc_ok else 200) + rssi
 
 
 def _best_tennis_from_adv_map(adv_map: dict[str, tuple[BLEDevice, AdvertisementData]]) -> BLEDevice | None:
-    """Return the strongest BLE candidate that genuinely matches the tennis
-    firmware advertisement (name prefix or tennis service UUID).
+    """Return the strongest BLE candidate whose local name strictly matches
+    NAME_PREFIX. Anything else is rejected outright.
 
-    Devices that don't satisfy either criterion are excluded — we never
-    connect to unrelated nearby BLE peripherals.
+    We never connect to peripherals that don't follow the firmware's naming
+    convention — even if they happen to advertise the tennis service UUID.
     """
     best = None
-    best_rank = 0  # rank 0 == no match at all → ignored
+    best_rank = 0  # rank 0 == name didn't start with NAME_PREFIX → ignored
     excluded: list[str] = []
+    accepted: list[str] = []
     for _addr, pair in adv_map.items():
         d, adv = pair
         r = _tennis_device_rank(d, adv)
@@ -219,11 +298,20 @@ def _best_tennis_from_adv_map(adv_map: dict[str, tuple[BLEDevice, AdvertisementD
             label = _device_local_name(d, adv) or d.address
             excluded.append(label)
             continue
+        accepted.append(_device_local_name(d, adv) or d.address)
         if r > best_rank:
             best_rank = r
             best = d
     if excluded:
-        print(f"[BLE-FILTER] ignored {len(excluded)} non-tennis device(s): {excluded[:6]}", flush=True)
+        ble_log.info(
+            "scan rejected %d device(s) without %s* name: %s",
+            len(excluded), NAME_PREFIX, excluded[:6],
+        )
+    if accepted:
+        ble_log.info(
+            "scan accepted %d %s* device(s): %s — best rank=%d",
+            len(accepted), NAME_PREFIX, accepted, best_rank,
+        )
     return best
 
 
@@ -1974,6 +2062,7 @@ class TennisBleWorker(QObject):
     command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
+    ble_stale_cache = pyqtSignal(bool)  # True when macOS GATT cache appears stale
 
     def __init__(self):
         super().__init__()
@@ -1981,6 +2070,14 @@ class TennisBleWorker(QObject):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client: BleakClient | None = None
         self._target_address: str | None = None
+        # Session lock: after we accept one TENNIS_KY003* peripheral, never hop
+        # to a different BLE address in this app run.
+        self._locked_address: str | None = None
+        # Once we have connected to a valid tennis sensor, disable automatic
+        # background scanning forever for this worker run. If the sensor later
+        # disconnects, we pause and wait for an explicit user reconnect rather
+        # than searching for "whatever is nearby".
+        self._scan_frozen_after_first_lock: bool = False
         self._pending_cmd_ack: asyncio.Future[str] | None = None
         self._command_char_uuid: str | None = None
         self._command_notify_uuid: str | None = None
@@ -1995,6 +2092,16 @@ class TennisBleWorker(QObject):
 
     def _has_char(self, uuid: str) -> bool:
         return uuid.lower() in self._available_char_uuids
+
+    # Threshold below which we suspect the macOS GATT cache is stale (the
+    # latest firmware advertises 9 characteristics; anything materially fewer
+    # is likely a cache miss rather than a legitimately old firmware).
+    _EXPECTED_MIN_CHARACTERISTICS = 7
+    _REQUIRED_TELEMETRY_UUIDS = {
+        SENSOR_STATE_UUID.lower(),
+        HIT_COUNT_UUID.lower(),
+        RATE_X10_UUID.lower(),
+    }
 
     async def _resolve_command_characteristics(self):
         self._command_char_uuid = None
@@ -2112,11 +2219,93 @@ class TennisBleWorker(QObject):
                     self.status.emit("No tennis BLE sensor found, rescanning...")
                     await asyncio.sleep(1.5)
                     continue
+                # Belt-and-suspenders: even though `_find_device` only ever
+                # returns devices whose advertised local name starts with
+                # NAME_PREFIX, we re-validate here so it is impossible for a
+                # bug in scan ranking to ever connect us to anything that does
+                # not follow the firmware's naming convention.
+                final_name = device.name or ""
+                if not final_name.startswith(NAME_PREFIX):
+                    ble_log.warning(
+                        "refusing to connect to %s — name '%s' does not start with %s*",
+                        device.address, final_name or "<none>", NAME_PREFIX,
+                    )
+                    self.status.emit(
+                        f"Ignored non-tennis device {final_name or device.address} "
+                        f"(must be {NAME_PREFIX}*). Rescanning…"
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
+                if self._locked_address and device.address.lower() != self._locked_address.lower():
+                    ble_log.warning(
+                        "ignoring tennis-looking device %s (%s) because session is locked to %s",
+                        final_name or "<none>",
+                        device.address,
+                        self._locked_address,
+                    )
+                    self.status.emit(
+                        f"Ignoring {final_name or device.address}; locked to {self._locked_address}."
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
                 self._target_address = device.address
                 self.status.emit(f"Connecting to {device.name} ({device.address})")
-                self._client = BleakClient(device)
+                # Pass the service UUID hint when the Bleak version supports
+                # it. On some macOS Bleak builds this causes CoreBluetooth to
+                # specifically request the tennis service rather than relying
+                # on the cached service list.
+                try:
+                    self._client = BleakClient(device, services=[TENNIS_SERVICE_UUID])
+                except TypeError:
+                    self._client = BleakClient(device)
                 await self._client.connect()
                 await self._resolve_command_characteristics()
+                # If we ended up with materially fewer characteristics than
+                # the latest firmware exposes, the macOS GATT cache is almost
+                # certainly stale. We do NOT auto-retry (that turned out to
+                # destabilise things) — instead we surface a clear in-app
+                # banner and a one-click "Refresh BLE link" recovery button.
+                discovered_count = len(self._available_char_uuids)
+                cache_looks_stale = (
+                    0 < discovered_count < self._EXPECTED_MIN_CHARACTERISTICS
+                )
+                if cache_looks_stale:
+                    ble_log.warning(
+                        "GATT looks stale: only %d characteristics discovered "
+                        "(< %d expected). macOS cache likely needs a refresh.",
+                        discovered_count,
+                        self._EXPECTED_MIN_CHARACTERISTICS,
+                    )
+                else:
+                    ble_log.info(
+                        "GATT looks healthy: %d characteristics discovered.",
+                        discovered_count,
+                    )
+                self.ble_stale_cache.emit(cache_looks_stale)
+                missing_required = sorted(
+                    self._REQUIRED_TELEMETRY_UUIDS - self._available_char_uuids
+                )
+                if missing_required:
+                    # Hard fail: if even base telemetry UUIDs are missing, this
+                    # is not a usable tennis sensor session.
+                    self.status.emit(
+                        "Connected peripheral is missing mandatory telemetry "
+                        f"characteristics: {', '.join(missing_required)}. "
+                        "Disconnecting and rescanning."
+                    )
+                    ble_log.error(
+                        "mandatory telemetry UUIDs missing: %s",
+                        missing_required,
+                    )
+                    await self._disconnect()
+                    self.connected.emit(False, self._target_address or "")
+                    await asyncio.sleep(1.2)
+                    continue
+                if cache_looks_stale and HEALTH_UUID.lower() not in self._available_char_uuids:
+                    self.status.emit(
+                        "HEALTH BLOCKED BY STALE GATT (NO SUBSCRIPTION). "
+                        "Live base telemetry is connected."
+                    )
                 self._warned_no_command_channel = False
                 await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
@@ -2142,36 +2331,28 @@ class TennisBleWorker(QObject):
                         self.status.emit("Gate speed characteristic unavailable on this firmware.")
                 else:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
-                # Print the discovered GATT table once so the operator can see
-                # exactly which characteristics the firmware exposes. This is
-                # invaluable for diagnosing 'no frames' issues where Bleak on
-                # macOS silently accepts subscriptions to non-existent UUIDs.
+                # Log the discovered GATT table at INFO so the operator can
+                # see exactly which characteristics the firmware exposes. This
+                # is invaluable for diagnosing 'no frames' issues where Bleak
+                # on macOS silently accepts subscriptions to non-existent UUIDs.
                 discovered = sorted(self._available_char_uuids)
-                print(
-                    f"[BLE-DIAG] GATT characteristics discovered ({len(discovered)}):",
-                    flush=True,
-                )
+                ble_log.info("GATT characteristics discovered (%d):", len(discovered))
+                tag_by_uuid = {
+                    SENSOR_STATE_UUID.lower(): "state",
+                    HIT_COUNT_UUID.lower(): "count",
+                    RATE_X10_UUID.lower(): "rate",
+                    RPM_X10_UUID.lower(): "rpm",
+                    IMPACT_UUID.lower(): "impact",
+                    GATE_SPEED_UUID.lower(): "gate-speed",
+                    HEALTH_UUID.lower(): "HEALTH",
+                    FW_VERSION_UUID.lower(): "fw-version",
+                    COMMAND_UUID.lower(): "command",
+                }
                 for uuid in discovered:
-                    tag = ""
-                    if uuid == SENSOR_STATE_UUID.lower():
-                        tag = " (state)"
-                    elif uuid == HIT_COUNT_UUID.lower():
-                        tag = " (count)"
-                    elif uuid == RATE_X10_UUID.lower():
-                        tag = " (rate)"
-                    elif uuid == RPM_X10_UUID.lower():
-                        tag = " (rpm)"
-                    elif uuid == IMPACT_UUID.lower():
-                        tag = " (impact)"
-                    elif uuid == GATE_SPEED_UUID.lower():
-                        tag = " (gate-speed)"
-                    elif uuid == HEALTH_UUID.lower():
-                        tag = " (HEALTH)"
-                    elif uuid == COMMAND_UUID.lower():
-                        tag = " (command)"
-                    print(f"[BLE-DIAG]   {uuid}{tag}", flush=True)
-                # Firmware build identifier — read once at connect. The value is
-                # set by the ESP32 at boot from FIRMWARE_INFO_STRING, which
+                    tag = tag_by_uuid.get(uuid, "")
+                    ble_log.info("  %s%s", uuid, f" ({tag})" if tag else "")
+                # Firmware build identifier — read once at connect. The value
+                # is set by the ESP32 at boot from FIRMWARE_INFO_STRING, which
                 # bakes in __DATE__/__TIME__ from the C preprocessor, so it
                 # must change on every fresh flash.
                 if FW_VERSION_UUID.lower() in self._available_char_uuids:
@@ -2179,35 +2360,29 @@ class TennisBleWorker(QObject):
                         fw_bytes = await self._client.read_gatt_char(FW_VERSION_UUID)
                         fw_text = bytes(fw_bytes).decode("utf-8", errors="replace").strip()
                         if fw_text:
-                            print(f"[BLE-DIAG] firmware reports: {fw_text}", flush=True)
+                            ble_log.info("firmware reports: %s", fw_text)
                             self.firmware_info.emit(fw_text)
                             self.status.emit(f"Firmware: {fw_text}")
                     except Exception as exc:
-                        print(f"[BLE-DIAG] read FW_VERSION_UUID failed: {exc}", flush=True)
+                        ble_log.warning("read FW_VERSION_UUID failed: %s", exc)
                 else:
-                    print(
-                        "[BLE-DIAG] FW_VERSION_UUID not present in GATT — older firmware (re-flash to expose build stamp).",
-                        flush=True,
+                    ble_log.warning(
+                        "FW_VERSION_UUID not present in GATT — older firmware "
+                        "(re-flash to expose build stamp)."
                     )
                     self.firmware_info.emit("legacy (no version characteristic)")
                 if HEALTH_UUID.lower() in self._available_char_uuids:
                     try:
                         await self._client.start_notify(HEALTH_UUID, self._on_health)
-                        print("[BLE-DIAG] start_notify(HEALTH_UUID) OK", flush=True)
+                        ble_log.info("start_notify(HEALTH_UUID) OK")
                     except Exception as exc:
-                        print(
-                            f"[BLE-DIAG] start_notify(HEALTH_UUID) FAILED: {exc}",
-                            flush=True,
-                        )
+                        ble_log.error("start_notify(HEALTH_UUID) FAILED: %s", exc)
                         self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 else:
                     # On macOS Bleak silently accepts non-existent UUIDs, so we
                     # MUST gate on the discovered service table or we will sit
                     # forever on "Listening for first health frame".
-                    print(
-                        "[BLE-DIAG] HEALTH_UUID not present in GATT table — older firmware.",
-                        flush=True,
-                    )
+                    ble_log.warning("HEALTH_UUID not present in GATT table — older firmware.")
                     self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
@@ -2225,6 +2400,10 @@ class TennisBleWorker(QObject):
                     )
                     self.ble_handshake.emit(ping_ok)
                 self.connected.emit(True, device.address)
+                if self._locked_address is None:
+                    self._locked_address = device.address
+                    self._scan_frozen_after_first_lock = True
+                    ble_log.info("session BLE lock set: %s", self._locked_address)
                 if ping_ok:
                     self.status.emit("Connected — health check OK (PONG). Live streaming.")
                 else:
@@ -2239,27 +2418,51 @@ class TennisBleWorker(QObject):
                 while self._running and self._client and self._client.is_connected:
                     await asyncio.sleep(0.2)
             except Exception as exc:
+                ble_log.exception("BLE worker error")
                 self.status.emit(f"BLE worker error: {exc}")
             finally:
                 await self._disconnect()
                 self.connected.emit(False, self._target_address or "")
+                if self._scan_frozen_after_first_lock and self._locked_address:
+                    self.status.emit(
+                        "Locked sensor disconnected. Auto-scan is paused by design "
+                        "(prevents hopping). Press Connect to retry this sensor."
+                    )
+                    self._running = False
+                    break
                 if self._running:
                     await asyncio.sleep(1.0)
 
     async def _find_device(self):
+        def _pick_with_lock(
+            adv_map: dict[str, tuple[BLEDevice, AdvertisementData]]
+        ) -> BLEDevice | None:
+            if self._locked_address:
+                for _addr, pair in adv_map.items():
+                    d, adv = pair
+                    if d.address.lower() != self._locked_address.lower():
+                        continue
+                    nm = _device_local_name(d, adv) or ""
+                    if nm.startswith(NAME_PREFIX):
+                        return d
+                # Locked device not visible right now; do not fall through to a
+                # different address while lock is active.
+                return None
+            return _best_tennis_from_adv_map(adv_map)
+
         # 1) OS may filter to peripherals that advertise our service (fast on CoreBluetooth).
         filtered = await BleakScanner.discover(
             timeout=BLE_DISCOVER_TIMEOUT_S,
             return_adv=True,
             service_uuids=[TENNIS_SERVICE_UUID],
         )
-        picked = _best_tennis_from_adv_map(filtered)
+        picked = _pick_with_lock(filtered)
         if picked:
             return picked
 
         # 2) Full passive scan: match local name OR advertised service UUID (name often None on macOS).
         full = await BleakScanner.discover(timeout=BLE_DISCOVER_TIMEOUT_S, return_adv=True)
-        picked = _best_tennis_from_adv_map(full)
+        picked = _pick_with_lock(full)
         if picked:
             return picked
 
@@ -2268,15 +2471,18 @@ class TennisBleWorker(QObject):
         devices = await BleakScanner.discover(timeout=BLE_DISCOVER_TIMEOUT_S)
         ignored_legacy: list[str] = []
         for d in devices:
+            if self._locked_address and d.address.lower() != self._locked_address.lower():
+                continue
             nm = _device_local_name(d, None)
             if nm and nm.startswith(NAME_PREFIX):
                 return d
             if nm:
                 ignored_legacy.append(nm)
         if ignored_legacy:
-            print(
-                f"[BLE-FILTER] legacy scan ignored {len(ignored_legacy)} device(s): {ignored_legacy[:6]}",
-                flush=True,
+            ble_log.debug(
+                "legacy scan ignored %d device(s): %s",
+                len(ignored_legacy),
+                ignored_legacy[:6],
             )
         return None
 
@@ -2341,8 +2547,11 @@ class TennisBleWorker(QObject):
         # Diagnostic logger: prints first packet of each kind, then every 50th.
         n = self._diag_counts.get(key, 0) + 1
         self._diag_counts[key] = n
+        # Log every notify at DEBUG (always captured to file), and only the
+        # first + every 50th to INFO so the console stays readable.
+        ble_log.debug("notify %s #%d = %s", key, n, value)
         if n == 1 or n % 50 == 0:
-            print(f"[BLE-DIAG] {key} #{n} = {value}", flush=True)
+            ble_log.info("notify %s #%d = %s", key, n, value)
 
     def _on_state(self, _sender, data: bytearray):
         if len(data) >= 1:
@@ -2400,14 +2609,12 @@ class TennisBleWorker(QObject):
         # the BLE notify path is healthy end-to-end. Subsequent frames are
         # rate-limited via _diag.
         if self._diag_counts.get("health", 0) == 0:
-            print(
-                f"[BLE-DIAG] FIRST health frame received len={len(data)} expected={expected}",
-                flush=True,
-            )
+            ble_log.info("FIRST health frame received len=%d expected=%d", len(data), expected)
         if len(data) < expected:
-            print(
-                f"[BLE-DIAG] health frame too short ({len(data)} < {expected}) — payload struct mismatch?",
-                flush=True,
+            ble_log.warning(
+                "health frame too short (%d < %d) — payload struct mismatch?",
+                len(data),
+                expected,
             )
             return
         unpacked = struct.unpack("<IIBIIBIIBIH", bytes(data[: struct.calcsize("<IIBIIBIIBIH")]))
@@ -2486,6 +2693,8 @@ class TennisDashboard(QMainWindow):
         self._connect_popup_firmware: QLabel | None = None
         self._firmware_build: str = "—"
         self._connect_popup_btn: QPushButton | None = None
+        self._connect_popup_refresh_btn: QPushButton | None = None
+        self._connect_popup_forget_btn: QPushButton | None = None
         self._connect_popup_steps: list[QLabel] = []
         self._connect_step_states = ["pending", "pending", "pending", "pending"]
         self._last_handshake_ok = False
@@ -2959,6 +3168,31 @@ class TennisDashboard(QMainWindow):
         lay.addWidget(steps_box)
         row = QHBoxLayout()
         row.addStretch(1)
+        # Force a full BLE rediscovery — used when macOS GATT cache is stale
+        # after a firmware reflash and the auto-retry loop couldn't shake it
+        # loose. Tries `blueutil` first, then AppleScript, then a worker
+        # restart as a last resort.
+        self._connect_popup_refresh_btn = QPushButton("Refresh BLE link")
+        self._connect_popup_refresh_btn.setObjectName("SecondaryBtn")
+        self._connect_popup_refresh_btn.setToolTip(
+            "Force a full Bluetooth refresh — useful after reflashing the ESP32 "
+            "firmware when macOS keeps serving the old GATT service table."
+        )
+        self._connect_popup_refresh_btn.clicked.connect(self._force_ble_refresh)
+        row.addWidget(self._connect_popup_refresh_btn)
+        # When even blueutil cycling can't shake the macOS GATT cache loose,
+        # the only fix is for the user to forget the peripheral in System
+        # Settings. This button takes them straight there in one click.
+        self._connect_popup_forget_btn = QPushButton("Forget device & open Settings")
+        self._connect_popup_forget_btn.setObjectName("SecondaryBtn")
+        self._connect_popup_forget_btn.setToolTip(
+            "Opens System Settings → Bluetooth so you can click ⓘ next to "
+            "TENNIS_KY003 and 'Forget This Device' — required when macOS won't "
+            "drop a stale BLE cache after a major firmware change."
+        )
+        self._connect_popup_forget_btn.clicked.connect(self._open_bluetooth_settings)
+        self._connect_popup_forget_btn.setVisible(False)
+        row.addWidget(self._connect_popup_forget_btn)
         self._connect_popup_btn = QPushButton("Close")
         self._connect_popup_btn.setObjectName("SecondaryBtn")
         self._connect_popup_btn.clicked.connect(self._on_connect_popup_button)
@@ -2979,6 +3213,119 @@ class TennisDashboard(QMainWindow):
     def _on_connect_popup_button(self):
         if self._connect_popup is not None:
             self._connect_popup.hide()
+
+    def _force_ble_refresh(self):
+        """Force a full BLE refresh when macOS is serving a stale GATT cache.
+
+        Strategy (in order, falls through on failure):
+          1. blueutil -p 0; sleep 1; blueutil -p 1   (best, if installed)
+          2. AppleScript via System Events to surface the Bluetooth menu
+          3. Just stop & restart our worker as a last-ditch retry
+
+        After any of these, we kick the worker so it scans fresh."""
+        import shutil
+        import subprocess
+
+        ui_log.info("force BLE refresh requested by user")
+        details: list[str] = []
+
+        def _try_blueutil() -> bool:
+            path = shutil.which("blueutil")
+            if not path:
+                return False
+            try:
+                subprocess.run([path, "-p", "0"], check=True, timeout=5)
+                time.sleep(1.0)
+                subprocess.run([path, "-p", "1"], check=True, timeout=5)
+                details.append("blueutil cycled Bluetooth power off/on")
+                return True
+            except Exception as exc:
+                details.append(f"blueutil failed: {exc}")
+                return False
+
+        def _try_applescript() -> bool:
+            # Surface the macOS Bluetooth menu so the user can toggle in one
+            # click. AppleScript can't reliably toggle Bluetooth power on
+            # modern macOS without UI scripting consent, so this is a best
+            # effort to make recovery one click rather than five.
+            script = (
+                'tell application "System Events"\n'
+                '    tell process "ControlCenter"\n'
+                '        click menu bar item "Bluetooth" of menu bar 1\n'
+                '    end tell\n'
+                'end tell'
+            )
+            try:
+                subprocess.run(
+                    ["osascript", "-e", script],
+                    check=False, timeout=5,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                details.append("Opened Bluetooth menu via AppleScript")
+                return True
+            except Exception as exc:
+                details.append(f"osascript failed: {exc}")
+                return False
+
+        ok = _try_blueutil()
+        if not ok:
+            _try_applescript()
+
+        # Restart the worker regardless — clean disconnect + fresh scan.
+        try:
+            if self._worker:
+                self._worker.stop()
+            if self._thread and self._thread.isRunning():
+                self._thread.quit()
+                self._thread.wait(2000)
+        except Exception as exc:
+            details.append(f"worker stop error: {exc}")
+
+        self._thread = None
+        self._worker = None
+
+        msg = "Refreshing BLE link… "
+        if details:
+            msg += "; ".join(details)
+        self.statusBar().showMessage(msg)
+        if not ok:
+            self._set_connection_wizard_state(
+                "Refreshing BLE Link",
+                "If a Bluetooth menu just opened, toggle it OFF then back ON. "
+                "Otherwise install `brew install blueutil` for one-click recovery.",
+            )
+
+        # Short pause lets CoreBluetooth tear down peripheral handles before
+        # we re-scan, then we restart the worker.
+        QTimer.singleShot(2000, self._auto_start_discovery)
+
+    def _open_bluetooth_settings(self):
+        """Open macOS System Settings directly on the Bluetooth pane so the
+        user can forget the peripheral with one click — required when even
+        a blueutil power-cycle can't clear the stale GATT cache.
+
+        Tries the modern `x-apple.systempreferences:` URL first; falls back
+        to the legacy System Preferences app if that fails.
+        """
+        import subprocess
+        ui_log.info("opening System Settings → Bluetooth (forget device flow)")
+        try:
+            subprocess.Popen(
+                ["open", "x-apple.systempreferences:com.apple.BluetoothSettings"]
+            )
+            self.statusBar().showMessage(
+                "Opened Bluetooth Settings — click ⓘ next to TENNIS_KY003 → "
+                "'Forget This Device', then come back here."
+            )
+        except Exception as exc:
+            ui_log.exception("failed to open Bluetooth settings: %s", exc)
+            try:
+                subprocess.Popen(["open", "/System/Applications/System Settings.app"])
+            except Exception:
+                self.statusBar().showMessage(
+                    "Couldn't open Settings automatically. Open System Settings → "
+                    "Bluetooth → ⓘ next to TENNIS_KY003 → Forget This Device."
+                )
 
     def _auto_start_discovery(self):
         if self._thread and self._thread.isRunning():
@@ -4284,6 +4631,7 @@ class TennisDashboard(QMainWindow):
         self._worker.gate_speed.connect(self._on_gate_speed_packet)
         self._worker.health.connect(self._on_sensor_health)
         self._worker.firmware_info.connect(self._on_firmware_info)
+        self._worker.ble_stale_cache.connect(self._on_ble_stale_cache)
         self._worker.command_rx.connect(self._on_command_rx)
         self._worker.status.connect(self._on_status)
         self._thread.start()
@@ -4351,6 +4699,7 @@ class TennisDashboard(QMainWindow):
         self.link_chip.style().polish(self.link_chip)
 
     def _on_connected(self, ok: bool, addr: str):
+        ui_log.info("on_connected ok=%s addr=%s", ok, addr)
         if ok:
             self._reset_local_session_data()
             self.mode = "LIVE"
@@ -4393,6 +4742,11 @@ class TennisDashboard(QMainWindow):
                     )
             if self._connect_popup_btn is not None:
                 self._connect_popup_btn.setText("Close")
+            # Do not keep the connect wizard popup open once the link is up.
+            # Stale-cache guidance is surfaced via non-blocking chips/tooltips
+            # and status bar text instead.
+            if self._connect_popup is not None and self._connect_popup.isVisible():
+                self._connect_popup.hide()
             self.statusBar().showMessage(f"Connected to sensor: {addr}")
         else:
             self.mode = "SIMULATION"
@@ -4691,11 +5045,52 @@ class TennisDashboard(QMainWindow):
             row["glyph"].setStyleSheet(f"color: {color_for[status]};")
             row["detail"].setText(detail)
 
+    def _on_ble_stale_cache(self, stale: bool):
+        """Handle stale macOS GATT cache in a non-disruptive, manual way.
+
+        We no longer auto-cycle Bluetooth here. Auto-cycling with blueutil was
+        causing short disconnect storms (CoreBluetooth reports "Bluetooth device
+        is turned off" while the adapter flips power). Instead we keep the live
+        link up, mark the dashboard as partial, and let the user choose:
+          * Refresh BLE link (manual button)
+          * Forget device in Bluetooth settings (manual button)
+        """
+        ui_log.info(
+            "ble_stale_cache=%s (manual_recovery_only)",
+            stale,
+        )
+        if not stale:
+            return
+
+        # Keep session alive and visible as PARTIAL rather than interrupting
+        # with forced adapter toggles. Live telemetry still flows on the cached
+        # characteristics (state/count/rate/rpm/impact).
+        self.sensors_chip.setText("SENSORS\nPARTIAL")
+        self.sensors_chip.setObjectName("ChipWarn")
+        self.sensors_chip.style().polish(self.sensors_chip)
+        self.sensors_chip.setToolTip(
+            "Connected, but macOS is serving a stale GATT cache.\n"
+            "Live telemetry (state/count/rate/rpm/impact) is flowing.\n"
+            "Health and firmware-version characteristics are missing.\n"
+            "Fix: System Settings → Bluetooth → ⓘ next to TENNIS_KY003 → "
+            "Forget This Device, then reconnect."
+        )
+        if self._connect_popup_forget_btn is not None:
+            self._connect_popup_forget_btn.setVisible(True)
+        self.statusBar().showMessage(
+            "Connected with stale BLE cache. Live data is flowing. To restore "
+            "health/fw-version: forget the device in Bluetooth settings."
+        )
+        ui_log.info(
+            "stale cache detected — manual recovery only, dashboard remains usable."
+        )
+
     def _on_firmware_info(self, info: str):
         """Receives the firmware build identifier read from the ESP32 at
         connect time. Stored on `self._firmware_build` and surfaced in the
         connection wizard so the operator can confirm a fresh flash without
         opening a serial monitor."""
+        ui_log.info("firmware build identifier: %s", info)
         self._firmware_build = info or "—"
         if self._connect_popup_firmware is not None:
             self._connect_popup_firmware.setText(f"Firmware: {self._firmware_build}")
@@ -4991,6 +5386,14 @@ def _stddev(values: list[float]) -> float:
 
 
 def main():
+    log_path = configure_logging()
+    log.info("=" * 60)
+    log.info("Tennis Topspin Monitor starting")
+    if log_path:
+        log.info("Detailed log file: %s", log_path)
+    log.info("Set TENNIS_LOG_DEBUG=1 to enable DEBUG output on the console.")
+    log.info("=" * 60)
+
     app = QApplication(sys.argv)
     app.setFont(QFont("Arial", 10))
     w = TennisDashboard()

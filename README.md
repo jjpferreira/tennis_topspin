@@ -50,6 +50,39 @@ Reference distance for gate speed timing:
 - `rate_x10` (uint16): trigger rate in events/sec * 10
 - `command` (UTF-8 write): supports `RESET`
 
+## Logging
+
+The Python app uses Python's `logging` module with three named loggers:
+
+- `tennis.app` — top-level lifecycle (startup, shutdown).
+- `tennis.ble` — BLE worker: connect/disconnect, GATT enumeration, notify pipelines.
+- `tennis.ui`  — dashboard reactions (chip updates, popups, button presses).
+
+Output destinations:
+
+- **Console (stderr):** `INFO` and above by default. Set `TENNIS_LOG_DEBUG=1`
+  to enable `DEBUG` on the console as well.
+- **Rotating file (always DEBUG):** `python_app/logs/tennis_monitor.log`
+  with up to 5 × 5 MB backups. Override the directory with `TENNIS_LOG_DIR=/path`.
+
+When something goes wrong (BLE flake, GATT cache stale, missing characteristics),
+attach `python_app/logs/tennis_monitor.log` to the bug report — every connect
+attempt is captured with full GATT enumeration, firmware build identifier,
+notify counts and any recovery actions.
+
+Quick examples:
+
+```bash
+# Default (INFO on console, DEBUG to file):
+./python_app/realtime_tennis_monitor.py
+
+# Verbose console:
+TENNIS_LOG_DEBUG=1 ./python_app/realtime_tennis_monitor.py
+
+# Custom log directory:
+TENNIS_LOG_DIR=~/Desktop/tennis-logs ./python_app/realtime_tennis_monitor.py
+```
+
 ## Notes
 
 - This project is isolated under `_apps/tennis`.

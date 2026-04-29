@@ -1,7 +1,7 @@
 #pragma once
 
 // Tennis BLE service
-#define TENNIS_SERVICE_UUID      "7f4af201-1fb5-459e-8fcc-c5c9c331914b"
+#define TENNIS_SERVICE_UUID      "7f4af201-1fb5-459e-8fcc-c5c9c331914c"
 
 // Telemetry characteristics
 #define TENNIS_STATE_UUID        "7be5483e-36e1-4688-b7f5-ea07361b26a1" // uint8  0/1
