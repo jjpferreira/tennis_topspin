@@ -201,6 +201,8 @@ ESP32:  Hall → RPM / ω          Arm sensor → angle / arm velocity
 
 **Description:** Extend the simulator with practical coaching context: shot type tagging (forehand/backhand/serve), target-zone overlays, estimated net clearance, estimated post-bounce behavior, court-surface selector (hard/clay/grass), and focused drill mode feedback for repetition-based topspin practice.
 
+**Analysis:** [FEAT-020 analysis](analysis/FEAT_020_SHOT_INTENT_AND_PHYSICS_CONTEXT_ANALYSIS.md)
+
 **Related:** FEAT-005 (court visualization), FEAT-008 (desktop app), FEAT-009 (mode behavior), FEAT-012 (session analytics), FEAT-018 (student comparison).
 
 ---

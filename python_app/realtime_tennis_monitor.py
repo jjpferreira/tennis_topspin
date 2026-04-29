@@ -350,10 +350,15 @@ class CourtWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.shots: list[Shot] = []
+        self.target_overlay_mode = "Off"
         self.setMinimumHeight(438)
 
     def set_shots(self, shots: list[Shot]):
         self.shots = shots[-45:]  # keep cleaner like target
+        self.update()
+
+    def set_target_overlay(self, mode: str):
+        self.target_overlay_mode = mode
         self.update()
 
     def paintEvent(self, event):  # noqa: N802
@@ -408,6 +413,8 @@ class CourtWidget(QWidget):
         p.drawLine(self._map_norm(court, -0.75, 0.769), self._map_norm(court, 0.75, 0.769))
         # center service line
         p.drawLine(self._map_norm(court, 0.0, 0.231), self._map_norm(court, 0.0, 0.769))
+
+        self._draw_target_overlay(p, court)
 
         # Net with texture
         net_poly = QPolygonF([
@@ -472,6 +479,36 @@ class CourtWidget(QWidget):
             p.setPen(QColor("#c7d5e9"))
             p.drawText(legend_x + 22, yy + 4, txt)
             yy += 16
+
+    def _draw_target_overlay(self, p: QPainter, court: QRectF):
+        if self.target_overlay_mode == "Off":
+            return
+
+        zone_specs: list[tuple[float, float, float, float, QColor, str]] = []
+        if self.target_overlay_mode == "20 Topspin Cross-Court":
+            zone_specs.append((-3.2, -0.6, 6.5, 10.2, QColor(45, 212, 109, 74), "TOPSPIN CC"))
+            zone_specs.append((0.6, 3.2, 6.5, 10.2, QColor(45, 212, 109, 40), "ALT"))
+        elif self.target_overlay_mode == "15 Serve T":
+            zone_specs.append((-0.7, 0.7, 7.1, 9.8, QColor(255, 215, 138, 78), "SERVE T"))
+        elif self.target_overlay_mode == "15 Backhand Topspin":
+            zone_specs.append((0.6, 3.2, 6.4, 10.2, QColor(143, 208, 255, 78), "BH TOPSPIN"))
+
+        for x1, x2, y1, y2, fill_color, label in zone_specs:
+            poly = QPolygonF(
+                [
+                    self._landing_to_point(court, x1, y1),
+                    self._landing_to_point(court, x2, y1),
+                    self._landing_to_point(court, x2, y2),
+                    self._landing_to_point(court, x1, y2),
+                ]
+            )
+            p.setBrush(fill_color)
+            p.setPen(QPen(QColor(fill_color.red(), fill_color.green(), fill_color.blue(), 185), 1.4, Qt.PenStyle.DashLine))
+            p.drawPolygon(poly)
+            center = poly.boundingRect().center()
+            p.setPen(QColor("#d9e8f8"))
+            p.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+            p.drawText(QPointF(center.x() - 25, center.y()), label)
 
     @staticmethod
     def _court_corners(court: QRectF):
@@ -1324,10 +1361,13 @@ class StatsBIWindow(QWidget):
         )
 
 class SettingsWindow(QWidget):
-    def __init__(self, dashboard: "TennisDashboard"):
+    def __init__(self, dashboard: "TennisDashboard", scope: str = "all"):
         super().__init__()
         self.dashboard = dashboard
-        self.setWindowTitle("Tennis Settings")
+        self.scope = scope
+        self.has_hardware_settings = scope in ("all", "hardware")
+        self.has_app_settings = scope in ("all", "app")
+        self.setWindowTitle("Tennis App & Hardware Settings")
         self.resize(760, 520)
         self._capture_mode: str | None = None
         self._capture_target = 8
@@ -1339,27 +1379,59 @@ class SettingsWindow(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
-        self.settings_tabs = QTabWidget()
-        self.settings_tabs.setObjectName("SettingsTabs")
-        root.addWidget(self.settings_tabs, 1)
+        self.settings_groups = QTabWidget()
+        self.settings_groups.setObjectName("SettingsGroups")
+        root.addWidget(self.settings_groups, 1)
+
+        hardware_page = QWidget()
+        hardware_page_lay = QVBoxLayout(hardware_page)
+        hardware_page_lay.setContentsMargins(0, 0, 0, 0)
+        hardware_page_lay.setSpacing(8)
+        self.hardware_tabs = QTabWidget()
+        self.hardware_tabs.setObjectName("SettingsTabs")
+        hardware_page_lay.addWidget(self.hardware_tabs, 1)
+        self.settings_groups.addTab(hardware_page, "Hardware Settings")
+
+        app_page = QWidget()
+        app_page_lay = QVBoxLayout(app_page)
+        app_page_lay.setContentsMargins(0, 0, 0, 0)
+        app_page_lay.setSpacing(8)
+        self.app_tabs = QTabWidget()
+        self.app_tabs.setObjectName("SettingsTabs")
+        app_page_lay.addWidget(self.app_tabs, 1)
+        self.settings_groups.addTab(app_page, "App Settings")
+        if self.scope == "hardware":
+            self.settings_groups.setCurrentIndex(0)
+            self.settings_groups.tabBar().setVisible(False)
+            self.setWindowTitle("Hardware Settings")
+        elif self.scope == "app":
+            self.settings_groups.setCurrentIndex(1)
+            self.settings_groups.tabBar().setVisible(False)
+            self.setWindowTitle("App Settings")
 
         cal_tab = QWidget()
         cal_tab_lay = QVBoxLayout(cal_tab)
         cal_tab_lay.setContentsMargins(0, 0, 0, 0)
         cal_tab_lay.setSpacing(8)
-        self.settings_tabs.addTab(cal_tab, "Calibration")
+        self.hardware_tabs.addTab(cal_tab, "Calibration")
 
         wiz_tab = QWidget()
         wiz_tab_lay = QVBoxLayout(wiz_tab)
         wiz_tab_lay.setContentsMargins(0, 0, 0, 0)
         wiz_tab_lay.setSpacing(8)
-        self.settings_tabs.addTab(wiz_tab, "Wizard")
+        self.hardware_tabs.addTab(wiz_tab, "Wizard")
 
         comp_tab = QWidget()
         comp_tab_lay = QVBoxLayout(comp_tab)
         comp_tab_lay.setContentsMargins(0, 0, 0, 0)
         comp_tab_lay.setSpacing(8)
-        self.settings_tabs.addTab(comp_tab, "Competition Profiles")
+        self.app_tabs.addTab(comp_tab, "Competition Profiles")
+
+        train_tab = QWidget()
+        train_tab_lay = QVBoxLayout(train_tab)
+        train_tab_lay.setContentsMargins(0, 0, 0, 0)
+        train_tab_lay.setSpacing(8)
+        self.app_tabs.addTab(train_tab, "Training")
 
         cal_box = QFrame()
         cal_box.setObjectName("Panel")
@@ -1470,6 +1542,75 @@ class SettingsWindow(QWidget):
         comp_lay.addWidget(self.lbl_comp_status)
         comp_tab_lay.addWidget(comp_box, 1)
 
+        train_box = QFrame()
+        train_box.setObjectName("Panel")
+        train_lay = QVBoxLayout(train_box)
+        train_lay.setContentsMargins(10, 8, 10, 8)
+        train_lay.setSpacing(8)
+        train_lay.addWidget(QLabel("TRAINING CONTROLS"))
+
+        top_cards = QHBoxLayout()
+        top_cards.setSpacing(8)
+
+        surface_card = QFrame()
+        surface_card.setObjectName("Panel")
+        surface_lay = QVBoxLayout(surface_card)
+        surface_lay.setContentsMargins(8, 6, 8, 6)
+        surface_lay.setSpacing(4)
+        surface_title = QLabel("COURT SURFACE")
+        surface_title.setObjectName("PanelTitle")
+        self.lbl_surface_help = QLabel("Affects bounce kick estimate")
+        self.lbl_surface_help.setObjectName("SmallMuted")
+        self.train_surface_combo = QComboBox()
+        self.train_surface_combo.addItems(["Hard", "Clay", "Grass"])
+        surface_lay.addWidget(surface_title)
+        surface_lay.addWidget(self.lbl_surface_help)
+        surface_lay.addWidget(self.train_surface_combo)
+        top_cards.addWidget(surface_card, 1)
+
+        intent_card = QFrame()
+        intent_card.setObjectName("Panel")
+        intent_lay = QVBoxLayout(intent_card)
+        intent_lay.setContentsMargins(8, 6, 8, 6)
+        intent_lay.setSpacing(4)
+        intent_title = QLabel("SHOT INTENT")
+        intent_title.setObjectName("PanelTitle")
+        self.lbl_intent_help = QLabel("Auto infer or force a stroke type")
+        self.lbl_intent_help.setObjectName("SmallMuted")
+        self.train_intent_combo = QComboBox()
+        self.train_intent_combo.addItems(["Auto", "Forehand", "Backhand", "Serve"])
+        intent_lay.addWidget(intent_title)
+        intent_lay.addWidget(self.lbl_intent_help)
+        intent_lay.addWidget(self.train_intent_combo)
+        top_cards.addWidget(intent_card, 1)
+
+        train_lay.addLayout(top_cards)
+
+        drill_card = QFrame()
+        drill_card.setObjectName("Panel")
+        drill_lay = QVBoxLayout(drill_card)
+        drill_lay.setContentsMargins(8, 6, 8, 6)
+        drill_lay.setSpacing(4)
+        drill_title = QLabel("TARGET / DRILL TEMPLATE")
+        drill_title.setObjectName("PanelTitle")
+        self.lbl_drill_help = QLabel("Select a target zone objective for current session")
+        self.lbl_drill_help.setObjectName("SmallMuted")
+        self.train_drill_combo = QComboBox()
+        self.train_drill_combo.addItems(["Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin"])
+        drill_lay.addWidget(drill_title)
+        drill_lay.addWidget(self.lbl_drill_help)
+        drill_lay.addWidget(self.train_drill_combo)
+        train_lay.addWidget(drill_card)
+
+        self.lbl_training_status = QLabel("Drill Progress: Off")
+        self.lbl_training_status.setObjectName("SmallMuted")
+        self.lbl_training_tip = QLabel("Tip: use TARGET chip on main screen for fast tablet selection.")
+        self.lbl_training_tip.setObjectName("SmallMuted")
+        train_lay.addWidget(self.lbl_training_status)
+        train_lay.addWidget(self.lbl_training_tip)
+        train_tab_lay.addWidget(train_box)
+        train_tab_lay.addStretch(1)
+
         self.btn_cal_load.clicked.connect(self.dashboard._request_firmware_calibration)
         self.btn_cal_apply.clicked.connect(self._apply_calibration_from_inputs)
         self.btn_cal_save.clicked.connect(self.dashboard._save_firmware_calibration)
@@ -1481,6 +1622,9 @@ class SettingsWindow(QWidget):
         self.btn_comp_apply.clicked.connect(self._apply_competition_editor_changes)
         self.btn_comp_save.clicked.connect(self._save_competition_editor_changes)
         self.btn_comp_reset.clicked.connect(self._reset_competition_editor_defaults)
+        self.train_surface_combo.currentTextChanged.connect(self._on_training_surface_changed)
+        self.train_intent_combo.currentTextChanged.connect(self._on_training_intent_changed)
+        self.train_drill_combo.currentTextChanged.connect(self._on_training_drill_changed)
         self._refresh_competition_editor(self.comp_profile_combo.currentText())
 
     def _apply_calibration_from_inputs(self):
@@ -1506,6 +1650,20 @@ class SettingsWindow(QWidget):
     def set_calibration_status(self, text: str):
         self.lbl_cal_status.setText(text)
 
+    def show_hardware_settings(self):
+        self.setWindowTitle("Hardware Settings")
+        self.settings_groups.setCurrentIndex(0)
+        self.settings_groups.tabBar().setVisible(False)
+
+    def show_app_settings(self):
+        self.setWindowTitle("App Settings")
+        self.settings_groups.setCurrentIndex(1)
+        self.settings_groups.tabBar().setVisible(False)
+
+    def show_all_settings(self):
+        self.setWindowTitle("Tennis App & Hardware Settings")
+        self.settings_groups.tabBar().setVisible(True)
+
     def refresh(self):
         current = self.comp_profile_combo.currentText() or self.dashboard._competition_level
         self.comp_profile_combo.blockSignals(True)
@@ -1514,6 +1672,53 @@ class SettingsWindow(QWidget):
         self.comp_profile_combo.setCurrentText(current)
         self.comp_profile_combo.blockSignals(False)
         self._refresh_competition_editor(self.comp_profile_combo.currentText())
+        self.train_surface_combo.blockSignals(True)
+        self.train_surface_combo.setCurrentText(self.dashboard._court_surface)
+        self.train_surface_combo.blockSignals(False)
+        self.train_intent_combo.blockSignals(True)
+        self.train_intent_combo.setCurrentText(self.dashboard._shot_intent_override)
+        self.train_intent_combo.blockSignals(False)
+        self.train_drill_combo.blockSignals(True)
+        self.train_drill_combo.setCurrentText(self.dashboard._drill_mode)
+        self.train_drill_combo.blockSignals(False)
+        self.lbl_training_status.setText(self.dashboard._drill_status_text)
+        self._refresh_training_help()
+
+    def _on_training_surface_changed(self, value: str):
+        self.dashboard.set_court_surface(value)
+        self._refresh_training_help()
+
+    def _on_training_intent_changed(self, value: str):
+        self.dashboard.set_shot_intent_override(value)
+        self._refresh_training_help()
+
+    def _on_training_drill_changed(self, value: str):
+        self.dashboard.set_drill_mode(value)
+        self._refresh_training_help()
+
+    def _refresh_training_help(self):
+        surface_help = {
+            "Hard": "Balanced bounce profile",
+            "Clay": "Higher kick after bounce",
+            "Grass": "Lower and skiddier bounce",
+        }.get(self.dashboard._court_surface, "Affects bounce kick estimate")
+        self.lbl_surface_help.setText(surface_help)
+
+        intent_help = {
+            "Auto": "Uses sensor/shot model inference",
+            "Forehand": "Force forehand tagging",
+            "Backhand": "Force backhand tagging",
+            "Serve": "Force serve tagging",
+        }.get(self.dashboard._shot_intent_override, "Auto infer or force a stroke type")
+        self.lbl_intent_help.setText(intent_help)
+
+        drill_help = {
+            "Off": "No target gating, free training mode",
+            "20 Topspin Cross-Court": "Goal: 20 topspin cross-court hits",
+            "15 Serve T": "Goal: 15 serve-T hits with clean clearance",
+            "15 Backhand Topspin": "Goal: 15 topspin backhand hits",
+        }.get(self.dashboard._drill_mode, "Select a target zone objective for current session")
+        self.lbl_drill_help.setText(drill_help)
 
     def _refresh_competition_editor(self, level: str):
         profile = self.dashboard._competition_profiles.get(level)
@@ -1971,6 +2176,8 @@ class TennisDashboard(QMainWindow):
         self._active_session_saved = False
         self._stats_window: StatsBIWindow | None = None
         self._settings_window: SettingsWindow | None = None
+        self._hardware_settings_window: SettingsWindow | None = None
+        self._app_settings_window: SettingsWindow | None = None
         self._fw_calibration = {
             "counts_per_g": 410.0,
             "impact_mg_100": 4200,
@@ -1985,10 +2192,13 @@ class TennisDashboard(QMainWindow):
         self._drill_hits = 0
         self._drill_attempts = 0
         self._drill_goal_announced = False
+        self._drill_status_text = "Drill Progress: Off"
+        self._shot_intent_override = "Auto"
         self._ui_simple_mode = True
 
         self._build_ui()
         self._update_drill_status()
+        self._refresh_target_chip()
         self._apply_detail_mode()
         self._apply_style()
         self._load_competition_profiles_config()
@@ -2066,6 +2276,29 @@ class TennisDashboard(QMainWindow):
             btn.clicked.connect(lambda _checked=False, lvl=level: self._on_level_chip_selected(lvl))
             popup_lay.addWidget(btn)
             self._level_chip_buttons[level] = btn
+        self.target_chip = QPushButton("TARGET\nOFF ▾")
+        self.target_chip.setObjectName("ChipLevel")
+        self.target_chip.setMinimumWidth(150)
+        self.target_chip.clicked.connect(self._toggle_target_chip_popup)
+        self.target_chip.setToolTip("Choose target zone / drill")
+        hh.addWidget(self.target_chip)
+        self.target_chip_popup = QFrame(self, Qt.WindowType.Popup)
+        self.target_chip_popup.setObjectName("LevelPopup")
+        target_lay = QVBoxLayout(self.target_chip_popup)
+        target_lay.setContentsMargins(8, 8, 8, 8)
+        target_lay.setSpacing(6)
+        self._target_chip_buttons: dict[str, QPushButton] = {}
+        for mode, label in (
+            ("Off", "OFF"),
+            ("20 Topspin Cross-Court", "TOPSPIN CC"),
+            ("15 Serve T", "SERVE T"),
+            ("15 Backhand Topspin", "BACKHAND TOPSPIN"),
+        ):
+            btn = QPushButton(label)
+            btn.setObjectName("LevelOptionChip")
+            btn.clicked.connect(lambda _checked=False, m=mode: self._on_target_chip_selected(m))
+            target_lay.addWidget(btn)
+            self._target_chip_buttons[mode] = btn
         self.detail_chip = QPushButton("DETAIL\nSIMPLE")
         self.detail_chip.setObjectName("ChipLevel")
         self.detail_chip.setMinimumWidth(104)
@@ -2195,7 +2428,8 @@ class TennisDashboard(QMainWindow):
         icons.addStretch(1)
         icon_specs = [
             ("📊", "Open Students & Stats", self._open_stats_screen),
-            ("⚙", "Open Settings (Calibration)", self._open_settings_screen),
+            ("🛠", "Open Hardware Settings", self._open_hardware_settings_screen),
+            ("📱", "Open App Settings", self._open_app_settings_screen),
             ("⤢", "Fullscreen view (coming soon)", None),
         ]
         for glyph, tooltip, callback in icon_specs:
@@ -2208,6 +2442,7 @@ class TennisDashboard(QMainWindow):
             icons.addWidget(b)
         self.court_panel.layout().addLayout(icons)
         self.court_widget = CourtWidget()
+        self.court_widget.set_target_overlay(self._drill_mode)
         self.court_panel.layout().addWidget(self.court_widget)
         right_col.addWidget(self.court_panel, 3)
 
@@ -2240,12 +2475,6 @@ class TennisDashboard(QMainWindow):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(10)
-        self.surface_combo = QComboBox()
-        self.surface_combo.addItems(["Surface: Hard", "Surface: Clay", "Surface: Grass"])
-        self.drill_combo = QComboBox()
-        self.drill_combo.addItems(["Drill: Off", "Drill: 20 Topspin Cross-Court"])
-        self.lbl_drill_status = QLabel("Drill Progress: 0/0")
-        self.lbl_drill_status.setObjectName("SmallMuted")
         self.btn_connect = QPushButton("CONNECT SENSOR")
         self.btn_connect.setObjectName("SecondaryBtn")
         self.btn_new = QPushButton("NEW RANDOM SHOT")
@@ -2258,9 +2487,6 @@ class TennisDashboard(QMainWindow):
         self.btn_reset_session.setObjectName("SecondaryBtn")
         self.btn_disconnect = QPushButton("DISCONNECT")
         self.btn_disconnect.setObjectName("SecondaryBtn")
-        bottom.addWidget(self.surface_combo)
-        bottom.addWidget(self.drill_combo)
-        bottom.addWidget(self.lbl_drill_status)
         for btn in (
             self.btn_connect,
             self.btn_new,
@@ -2284,8 +2510,6 @@ class TennisDashboard(QMainWindow):
         self.btn_reset_session.clicked.connect(self._reset_session)
         self.btn_clear.clicked.connect(self._clear_shots)
         self.btn_export.clicked.connect(self._export_csv)
-        self.surface_combo.currentTextChanged.connect(self._on_surface_changed)
-        self.drill_combo.currentTextChanged.connect(self._on_drill_changed)
 
     def _auto_start_discovery(self):
         if self._thread and self._thread.isRunning():
@@ -2365,9 +2589,6 @@ class TennisDashboard(QMainWindow):
             self.lbl_net_clearance,
             self.lbl_bounce,
             self.lbl_target_zone,
-            self.surface_combo,
-            self.drill_combo,
-            self.lbl_drill_status,
         ]
         for widget in advanced_widgets:
             widget.setVisible(not self._ui_simple_mode)
@@ -2379,22 +2600,153 @@ class TennisDashboard(QMainWindow):
         self.history_table.setColumnHidden(8, self._ui_simple_mode)  # target
         self.history_table.setColumnHidden(9, self._ui_simple_mode)  # coaching
 
-    def _on_surface_changed(self, text: str):
-        self._court_surface = text.replace("Surface:", "").strip()
+    def set_court_surface(self, surface: str):
+        if surface not in {"Hard", "Clay", "Grass"}:
+            return
+        self._court_surface = surface
         self.statusBar().showMessage(f"Court surface set to {self._court_surface}.")
+        for w in self._app_settings_windows():
+            w.lbl_training_status.setText(self._drill_status_text)
 
-    def _on_drill_changed(self, text: str):
-        self._drill_mode = text.replace("Drill:", "").strip()
+    def _toggle_target_chip_popup(self):
+        if self.target_chip_popup.isVisible():
+            self.target_chip_popup.hide()
+            return
+        chip_width = self.target_chip.width()
+        chip_height = self.target_chip.height()
+        popup_width = max(180, chip_width + 18)
+        self.target_chip_popup.setFixedWidth(popup_width)
+        for btn in self._target_chip_buttons.values():
+            btn.setMinimumWidth(popup_width - 16)
+            btn.setMinimumHeight(chip_height)
+        pos = self.target_chip.mapToGlobal(self.target_chip.rect().bottomLeft())
+        self.target_chip_popup.move(pos.x(), pos.y() + 6)
+        self.target_chip_popup.adjustSize()
+        self.target_chip_popup.show()
+
+    def _on_target_chip_selected(self, mode: str):
+        self.target_chip_popup.hide()
+        self._apply_drill_mode(mode, sync_settings=True)
+
+    def set_shot_intent_override(self, intent: str):
+        if intent not in {"Auto", "Forehand", "Backhand", "Serve"}:
+            return
+        self._shot_intent_override = intent
+        self.statusBar().showMessage(f"Shot intent set to {self._shot_intent_override}.")
+
+    def set_drill_mode(self, mode: str):
+        if mode not in {"Off", "20 Topspin Cross-Court", "15 Serve T", "15 Backhand Topspin"}:
+            return
+        self._apply_drill_mode(mode, sync_settings=False)
+
+    def _apply_drill_mode(self, mode: str, sync_settings: bool):
+        self._drill_mode = mode
+        if self._drill_mode in {"15 Serve T", "15 Backhand Topspin"}:
+            self._drill_goal = 15
+        elif self._drill_mode == "20 Topspin Cross-Court":
+            self._drill_goal = 20
+        else:
+            self._drill_goal = 20
         self._drill_hits = 0
         self._drill_attempts = 0
         self._drill_goal_announced = False
+        self.court_widget.set_target_overlay(self._drill_mode)
         self._update_drill_status()
+        self._refresh_target_chip()
+        if sync_settings:
+            for w in self._app_settings_windows():
+                w.refresh()
 
     def _update_drill_status(self):
         if self._drill_mode == "Off":
-            self.lbl_drill_status.setText("Drill Progress: Off")
+            self._drill_status_text = "Drill Progress: Off"
+            for w in self._app_settings_windows():
+                w.lbl_training_status.setText(self._drill_status_text)
             return
-        self.lbl_drill_status.setText(f"Drill Progress: {self._drill_hits}/{self._drill_goal} ({self._drill_attempts} shots)")
+        self._drill_status_text = f"Drill Progress: {self._drill_hits}/{self._drill_goal} ({self._drill_attempts} shots)"
+        for w in self._app_settings_windows():
+            w.lbl_training_status.setText(self._drill_status_text)
+
+    def _refresh_target_chip(self):
+        label = {
+            "Off": "OFF",
+            "20 Topspin Cross-Court": "TOPSPIN CC",
+            "15 Serve T": "SERVE T",
+            "15 Backhand Topspin": "BACKHAND",
+        }.get(self._drill_mode, self._drill_mode.upper())
+        self.target_chip.setText(f"TARGET\n{label} ▾")
+
+        active_palette = {
+            "Off": {"border": "#3a4d66", "bg": "#102033", "hover": "#15304b", "fg": "#a8bfd8"},
+            "20 Topspin Cross-Court": {"border": "#2a6c54", "bg": "#05291f", "hover": "#083629", "fg": "#8ff0af"},
+            "15 Serve T": {"border": "#8a6a2a", "bg": "#2a2210", "hover": "#3a2c12", "fg": "#ffd78a"},
+            "15 Backhand Topspin": {"border": "#2b5f8f", "bg": "#0a2943", "hover": "#10375a", "fg": "#8fd0ff"},
+        }.get(
+            self._drill_mode,
+            {"border": "#3a4d66", "bg": "#102033", "hover": "#15304b", "fg": "#a8bfd8"},
+        )
+        self.target_chip.setStyleSheet(
+            f"""
+            QPushButton {{
+                border: 1px solid {active_palette['border']};
+                border-radius: 7px;
+                padding: 6px;
+                font-size: 10px;
+                font-weight: 800;
+                color: {active_palette['fg']};
+                background: {active_palette['bg']};
+            }}
+            QPushButton:hover {{
+                background: {active_palette['hover']};
+            }}
+            """
+        )
+
+        self.target_chip_popup.setStyleSheet(
+            """
+            QFrame#LevelPopup {
+                background: #071528;
+                border: 1px solid #1d4369;
+                border-radius: 8px;
+            }
+            """
+        )
+        per_mode = {
+            "Off": {"border": "#3a4d66", "bg": "#102033", "hover": "#15304b", "fg": "#a8bfd8"},
+            "20 Topspin Cross-Court": {"border": "#2a6c54", "bg": "#05291f", "hover": "#083629", "fg": "#8ff0af"},
+            "15 Serve T": {"border": "#8a6a2a", "bg": "#2a2210", "hover": "#3a2c12", "fg": "#ffd78a"},
+            "15 Backhand Topspin": {"border": "#2b5f8f", "bg": "#0a2943", "hover": "#10375a", "fg": "#8fd0ff"},
+        }
+        for mode, btn in self._target_chip_buttons.items():
+            pal = per_mode.get(mode, per_mode["Off"])
+            width = "2px" if mode == self._drill_mode else "1px"
+            weight = "900" if mode == self._drill_mode else "800"
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    border: {width} solid {pal['border']};
+                    border-radius: 7px;
+                    padding: 6px 10px;
+                    font-size: 10px;
+                    font-weight: {weight};
+                    color: {pal['fg']};
+                    background: {pal['bg']};
+                    text-align: center;
+                }}
+                QPushButton:hover {{
+                    background: {pal['hover']};
+                }}
+                """
+            )
+
+    def _drill_hit_for_shot(self, shot: Shot) -> bool:
+        if self._drill_mode == "20 Topspin Cross-Court":
+            return shot.spin_type == "Topspin" and shot.target_zone_hit
+        if self._drill_mode == "15 Serve T":
+            return shot.shot_type == "Serve" and shot.target_zone_hit and shot.net_clearance_m >= 0.22
+        if self._drill_mode == "15 Backhand Topspin":
+            return shot.shot_type == "Backhand" and shot.spin_type == "Topspin" and shot.target_zone_hit
+        return False
 
     @staticmethod
     def _classify_spin_type(spin: int, impact_y: int) -> str:
@@ -2430,7 +2782,12 @@ class TennisDashboard(QMainWindow):
     def _is_target_zone_hit(self, shot_type: str, arm_angle: float, landing_x: float, landing_y: float, spin_type: str) -> bool:
         if shot_type == "Serve":
             return -1.4 <= landing_x <= 1.4 and 7.1 <= landing_y <= 9.8
-        cross_ok = (arm_angle >= 0.0 and landing_x <= -0.4) or (arm_angle < 0.0 and landing_x >= 0.4)
+        if shot_type == "Backhand":
+            cross_ok = landing_x >= 0.4
+        elif shot_type == "Forehand":
+            cross_ok = landing_x <= -0.4
+        else:
+            cross_ok = (arm_angle >= 0.0 and landing_x <= -0.4) or (arm_angle < 0.0 and landing_x >= 0.4)
         return cross_ok and 6.5 <= landing_y <= 10.2 and spin_type == "Topspin"
 
     @staticmethod
@@ -2803,13 +3160,26 @@ class TennisDashboard(QMainWindow):
             "impact": impact_score,
         }
 
+    def _all_settings_windows(self) -> list[SettingsWindow]:
+        windows = []
+        for w in (self._settings_window, self._hardware_settings_window, self._app_settings_window):
+            if w is not None and w not in windows:
+                windows.append(w)
+        return windows
+
+    def _hardware_settings_windows(self) -> list[SettingsWindow]:
+        return [w for w in self._all_settings_windows() if w.has_hardware_settings]
+
+    def _app_settings_windows(self) -> list[SettingsWindow]:
+        return [w for w in self._all_settings_windows() if w.has_app_settings]
+
     def _set_calibration_status(self, text: str):
-        if self._settings_window is not None:
-            self._settings_window.set_calibration_status(text)
+        for w in self._hardware_settings_windows():
+            w.set_calibration_status(text)
 
     def _refresh_calibration_ui(self):
-        if self._settings_window is not None:
-            self._settings_window.set_calibration_values(
+        for w in self._hardware_settings_windows():
+            w.set_calibration_values(
                 self._fw_calibration["counts_per_g"],
                 int(self._fw_calibration["impact_mg_100"]),
                 int(self._fw_calibration["contact_full_scale_mg"]),
@@ -2947,8 +3317,9 @@ class TennisDashboard(QMainWindow):
 
     def _open_settings_screen(self):
         if self._settings_window is None:
-            self._settings_window = SettingsWindow(self)
+            self._settings_window = SettingsWindow(self, scope="all")
             self._settings_window.setStyleSheet(self.styleSheet())
+        self._settings_window.show_all_settings()
         self._refresh_calibration_ui()
         self._settings_window.refresh()
         self._settings_window.show()
@@ -2956,6 +3327,29 @@ class TennisDashboard(QMainWindow):
         self._settings_window.activateWindow()
         if self.mode == "LIVE" and self._worker:
             self._request_firmware_calibration()
+
+    def _open_hardware_settings_screen(self):
+        if self._hardware_settings_window is None:
+            self._hardware_settings_window = SettingsWindow(self, scope="hardware")
+            self._hardware_settings_window.setStyleSheet(self.styleSheet())
+        self._hardware_settings_window.show_hardware_settings()
+        self._refresh_calibration_ui()
+        self._hardware_settings_window.refresh()
+        self._hardware_settings_window.show()
+        self._hardware_settings_window.raise_()
+        self._hardware_settings_window.activateWindow()
+        if self.mode == "LIVE" and self._worker:
+            self._request_firmware_calibration()
+
+    def _open_app_settings_screen(self):
+        if self._app_settings_window is None:
+            self._app_settings_window = SettingsWindow(self, scope="app")
+            self._app_settings_window.setStyleSheet(self.styleSheet())
+        self._app_settings_window.show_app_settings()
+        self._app_settings_window.refresh()
+        self._app_settings_window.show()
+        self._app_settings_window.raise_()
+        self._app_settings_window.activateWindow()
 
     def _save_current_session(self):
         if not self.shots:
@@ -2974,6 +3368,11 @@ class TennisDashboard(QMainWindow):
             "consistency": summary.consistency,
             "fast_pct": round(summary.fast_pct, 2),
             "avg_impact_redness": round(summary.avg_impact_redness, 2),
+            "drill_mode": self._drill_mode,
+            "drill_hits": int(self._drill_hits),
+            "drill_attempts": int(self._drill_attempts),
+            "drill_hit_rate": round((self._drill_hits * 100.0 / self._drill_attempts), 2) if self._drill_attempts else 0.0,
+            "court_surface": self._court_surface,
         }
         sessions = self._profiles.setdefault(self._current_student, [])
         if (
@@ -3230,6 +3629,8 @@ class TennisDashboard(QMainWindow):
     ):
         spin_type = self._classify_spin_type(spin, impact_y)
         shot_type = self._infer_shot_type(speed, arm_angle)
+        if self._shot_intent_override in {"Forehand", "Backhand", "Serve"}:
+            shot_type = self._shot_intent_override
         face_tilt_deg = self._estimate_face_tilt(arm_angle, impact_y)
         brush_angle_deg = self._estimate_brush_angle(spin, impact_y)
         net_clearance_m = self._estimate_net_clearance(speed, spin, arm_angle)
@@ -3262,12 +3663,12 @@ class TennisDashboard(QMainWindow):
         self.shots.append(shot)
         if self._drill_mode != "Off":
             self._drill_attempts += 1
-            if self._drill_mode == "20 Topspin Cross-Court" and spin_type == "Topspin" and target_zone_hit:
+            if self._drill_hit_for_shot(shot):
                 self._drill_hits += 1
             self._update_drill_status()
             if self._drill_hits >= self._drill_goal and not self._drill_goal_announced:
                 self._drill_goal_announced = True
-                self.statusBar().showMessage("Drill complete: 20 topspin cross-court targets achieved.")
+                self.statusBar().showMessage(f"Drill complete: {self._drill_mode} targets achieved.")
         if len(self.shots) > 300:
             self.shots = self.shots[-300:]
         self._active_session_saved = False
@@ -3386,18 +3787,17 @@ class TennisDashboard(QMainWindow):
             return
         self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
         self._last_impact_reading = (contact_x, contact_y, intensity)
-        if self._settings_window is not None:
-            self._settings_window.on_impact_event(
-                {
-                    "hit_count": hit_count,
-                    "x_mg": x_mg,
-                    "y_mg": y_mg,
-                    "z_mg": z_mg,
-                    "mag_mg": mag_mg,
-                    "intensity": intensity,
-                    "valid": bool(valid),
-                }
-            )
+        event = {
+            "hit_count": hit_count,
+            "x_mg": x_mg,
+            "y_mg": y_mg,
+            "z_mg": z_mg,
+            "mag_mg": mag_mg,
+            "intensity": intensity,
+            "valid": bool(valid),
+        }
+        for w in self._hardware_settings_windows():
+            w.on_impact_event(event)
         if len(self._impact_by_hit_count) > 128:
             old = sorted(self._impact_by_hit_count.keys())[:-64]
             for key in old:
