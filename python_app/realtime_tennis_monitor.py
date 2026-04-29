@@ -14,9 +14,11 @@ import csv
 import json
 import math
 import random
+import signal
 import struct
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +31,7 @@ from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, 
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -1962,6 +1965,81 @@ class TennisBleWorker(QObject):
         self._client: BleakClient | None = None
         self._target_address: str | None = None
         self._pending_cmd_ack: asyncio.Future[str] | None = None
+        self._command_char_uuid: str | None = None
+        self._command_notify_uuid: str | None = None
+        self._warned_no_command_channel = False
+
+    @staticmethod
+    def _has_prop(props: list[str], needle: str) -> bool:
+        n = needle.lower()
+        return any(n in p.lower() for p in props)
+
+    async def _resolve_command_characteristics(self):
+        self._command_char_uuid = None
+        self._command_notify_uuid = None
+        if not self._client:
+            return
+        try:
+            services = self._client.services
+        except Exception as exc:
+            self.status.emit(f"BLE service discovery failed: {exc}")
+            return
+        if not services:
+            # Some Bleak backends require explicit service discovery once.
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", FutureWarning)
+                    await self._client.get_services()
+                services = self._client.services
+            except Exception as exc:
+                self.status.emit(f"BLE service discovery returned no services ({exc}).")
+                return
+            if not services:
+                self.status.emit("BLE service discovery returned no services.")
+                return
+
+        command_exact = None
+        writable_fallback = None
+        tennis_service_seen = False
+        tennis_writable_uuids: list[str] = []
+        for service in services:
+            if service.uuid.lower() == TENNIS_SERVICE_UUID.lower():
+                tennis_service_seen = True
+            for ch in service.characteristics:
+                props = [str(p) for p in (ch.properties or [])]
+                is_writable = self._has_prop(props, "write")
+                is_notify = self._has_prop(props, "notify")
+                if ch.uuid.lower() == COMMAND_UUID.lower():
+                    command_exact = ch
+                if service.uuid.lower() == TENNIS_SERVICE_UUID.lower() and is_writable and writable_fallback is None:
+                    writable_fallback = ch
+                if service.uuid.lower() == TENNIS_SERVICE_UUID.lower() and is_writable:
+                    tennis_writable_uuids.append(ch.uuid)
+
+                if command_exact is not None:
+                    break
+            if command_exact is not None:
+                break
+
+        selected = command_exact or writable_fallback
+        if selected is None:
+            if not tennis_service_seen:
+                self.status.emit("Connected device does not expose Tennis service UUID.")
+            elif tennis_writable_uuids:
+                listed = ", ".join(tennis_writable_uuids[:4])
+                self.status.emit(
+                    f"Command UUID mismatch. Expected {COMMAND_UUID}; writable found: {listed}"
+                )
+            else:
+                self.status.emit("Command characteristic unavailable on this firmware.")
+            return
+
+        props = [str(p) for p in (selected.properties or [])]
+        self._command_char_uuid = selected.uuid
+        if self._has_prop(props, "notify"):
+            self._command_notify_uuid = selected.uuid
+        if selected.uuid.lower() != COMMAND_UUID.lower():
+            self.status.emit(f"Using fallback command characteristic: {selected.uuid}")
 
     def stop(self):
         self._running = False
@@ -1974,6 +2052,9 @@ class TennisBleWorker(QObject):
     def request_command(self, text: str):
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._write_command(text), self._loop)
+
+    def can_send_commands(self) -> bool:
+        return bool(self._command_char_uuid)
 
     def run(self):
         self._running = True
@@ -2001,6 +2082,8 @@ class TennisBleWorker(QObject):
                 self.status.emit(f"Connecting to {device.name} ({device.address})")
                 self._client = BleakClient(device)
                 await self._client.connect()
+                await self._resolve_command_characteristics()
+                self._warned_no_command_channel = False
                 await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
                 await self._client.start_notify(RATE_X10_UUID, self._on_rate)
@@ -2008,24 +2091,42 @@ class TennisBleWorker(QObject):
                     await self._client.start_notify(RPM_X10_UUID, self._on_rpm)
                 except Exception:
                     self.status.emit("RPM characteristic unavailable on this firmware.")
-                await self._client.start_notify(IMPACT_UUID, self._on_impact)
+                try:
+                    await self._client.start_notify(IMPACT_UUID, self._on_impact)
+                except Exception:
+                    self.status.emit("Impact characteristic unavailable on this firmware.")
                 try:
                     await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
                 except Exception:
                     # Backward compatibility with older firmware builds lacking gate speed UUID.
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
-                await self._client.start_notify(COMMAND_UUID, self._on_command_notify)
-                ping_ok = await self._await_command_ack(
-                    STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
-                )
-                self.ble_handshake.emit(ping_ok)
+                command_notify_ok = bool(self._command_notify_uuid)
+                if command_notify_ok:
+                    try:
+                        await self._client.start_notify(self._command_notify_uuid, self._on_command_notify)
+                    except Exception:
+                        command_notify_ok = False
+                        self.status.emit("Command notify unavailable; skipping PONG health check.")
+                else:
+                    self.status.emit("Command notify unavailable; skipping PONG health check.")
+                ping_ok = False
+                if command_notify_ok and self._command_char_uuid:
+                    ping_ok = await self._await_command_ack(
+                        STREAM_KEEPALIVE_COMMAND, PING_ACK_SUBSTRING, PING_HEALTH_TIMEOUT_S
+                    )
+                    self.ble_handshake.emit(ping_ok)
                 self.connected.emit(True, device.address)
                 if ping_ok:
                     self.status.emit("Connected — health check OK (PONG). Live streaming.")
                 else:
-                    self.status.emit(
-                        "Connected — no PONG before timeout (flash newer firmware?). Live streaming."
-                    )
+                    if command_notify_ok and self._command_char_uuid:
+                        self.status.emit(
+                            "Connected — no PONG before timeout (flash newer firmware?). Live streaming."
+                        )
+                    else:
+                        self.status.emit(
+                            "Connected — command channel unavailable. Firmware may keep stream disabled until STREAM:ON/PING."
+                        )
                 while self._running and self._client and self._client.is_connected:
                     await asyncio.sleep(0.2)
             except Exception as exc:
@@ -2075,13 +2176,13 @@ class TennisBleWorker(QObject):
         self._client = None
 
     async def _await_command_ack(self, cmd: str, ack_needle: str, timeout_s: float) -> bool:
-        if not self._client or not self._client.is_connected:
+        if not self._client or not self._client.is_connected or not self._command_char_uuid:
             return False
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[str] = loop.create_future()
         self._pending_cmd_ack = fut
         try:
-            await self._client.write_gatt_char(COMMAND_UUID, cmd.encode("utf-8"), response=False)
+            await self._client.write_gatt_char(self._command_char_uuid, cmd.encode("utf-8"), response=False)
             payload = await asyncio.wait_for(fut, timeout=timeout_s)
             return ack_needle.upper() in payload.upper()
         except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -2092,8 +2193,13 @@ class TennisBleWorker(QObject):
     async def _write_command(self, text: str):
         if not self._client or not self._client.is_connected:
             return
+        if not self._command_char_uuid:
+            if not self._warned_no_command_channel:
+                self._warned_no_command_channel = True
+                self.status.emit("Command failed: command characteristic not available on connected firmware.")
+            return
         try:
-            await self._client.write_gatt_char(COMMAND_UUID, text.encode("utf-8"), response=False)
+            await self._client.write_gatt_char(self._command_char_uuid, text.encode("utf-8"), response=False)
             if text != STREAM_KEEPALIVE_COMMAND:
                 self.status.emit(f"Sent command: {text}")
         except Exception as exc:
@@ -2187,6 +2293,14 @@ class TennisDashboard(QMainWindow):
         self._settings_window: SettingsWindow | None = None
         self._hardware_settings_window: SettingsWindow | None = None
         self._app_settings_window: SettingsWindow | None = None
+        self._connect_popup: QDialog | None = None
+        self._connect_popup_stage: QLabel | None = None
+        self._connect_popup_detail: QLabel | None = None
+        self._connect_popup_sensor: QLabel | None = None
+        self._connect_popup_btn: QPushButton | None = None
+        self._connect_popup_steps: list[QLabel] = []
+        self._connect_step_states = ["pending", "pending", "pending", "pending"]
+        self._last_handshake_ok = False
         self._fw_calibration = {
             "counts_per_g": 410.0,
             "impact_mg_100": 4200,
@@ -2498,6 +2612,21 @@ class TennisDashboard(QMainWindow):
         self.history_panel.layout().addWidget(self.history_table)
         lower.addWidget(self.history_panel, 2)
 
+        wizard_row = QFrame()
+        wizard_row.setObjectName("Panel")
+        wizard_lay = QVBoxLayout(wizard_row)
+        wizard_lay.setContentsMargins(10, 8, 10, 8)
+        wizard_lay.setSpacing(2)
+        self.lbl_connect_stage = QLabel("LIVE WIZARD · Ready")
+        self.lbl_connect_stage.setObjectName("PanelTitle")
+        self.lbl_connect_detail = QLabel(
+            "Step 1/4 Discover sensor · Step 2/4 Link BLE · Step 3/4 Handshake · Step 4/4 Live stream"
+        )
+        self.lbl_connect_detail.setObjectName("SmallMuted")
+        wizard_lay.addWidget(self.lbl_connect_stage)
+        wizard_lay.addWidget(self.lbl_connect_detail)
+        outer.addWidget(wizard_row)
+
         bottom = QHBoxLayout()
         bottom.setSpacing(10)
         self.btn_connect = QPushButton("CONNECT SENSOR")
@@ -2536,10 +2665,117 @@ class TennisDashboard(QMainWindow):
         self.btn_clear.clicked.connect(self._clear_shots)
         self.btn_export.clicked.connect(self._export_csv)
 
+    def _set_connection_wizard_state(self, stage: str, detail: str):
+        if hasattr(self, "lbl_connect_stage"):
+            self.lbl_connect_stage.setText(f"LIVE WIZARD · {stage}")
+        if hasattr(self, "lbl_connect_detail"):
+            self.lbl_connect_detail.setText(detail)
+        if self._connect_popup_stage is not None:
+            self._connect_popup_stage.setText(stage)
+        if self._connect_popup_detail is not None:
+            self._connect_popup_detail.setText(detail)
+
+    def _set_connection_wizard_sensor(self, text: str):
+        if self._connect_popup_sensor is not None:
+            self._connect_popup_sensor.setText(text)
+
+    def _set_connect_step_state(self, step_idx: int, state: str):
+        if not (0 <= step_idx < len(self._connect_step_states)):
+            return
+        self._connect_step_states[step_idx] = state
+        self._refresh_connect_step_labels()
+
+    def _reset_connect_step_states(self):
+        self._connect_step_states = ["pending", "pending", "pending", "pending"]
+        self._refresh_connect_step_labels()
+
+    def _refresh_connect_step_labels(self):
+        if not self._connect_popup_steps:
+            return
+        labels = [
+            "Discover sensor",
+            "Link BLE",
+            "Handshake",
+            "Live stream",
+        ]
+        style_map = {
+            "pending": ("○", "#9bb0c7"),
+            "in_progress": ("◔", "#8fd0ff"),
+            "done": ("✓", "#31e46a"),
+            "warn": ("⚠", "#ffd78a"),
+        }
+        for i, lbl in enumerate(self._connect_popup_steps):
+            st = self._connect_step_states[i] if i < len(self._connect_step_states) else "pending"
+            icon, color = style_map.get(st, style_map["pending"])
+            lbl.setText(f"<span style='color:{color}; font-weight:700'>{icon}</span>  {i + 1}. {labels[i]}")
+
+    def _ensure_connect_popup(self):
+        if self._connect_popup is not None:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Live Connection Wizard")
+        dlg.setModal(False)
+        dlg.resize(460, 190)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
+        ttl = QLabel("Connect to ESP32 sensor")
+        ttl.setObjectName("PanelTitle")
+        lay.addWidget(ttl)
+        self._connect_popup_stage = QLabel("Ready")
+        self._connect_popup_stage.setObjectName("MainTitle")
+        lay.addWidget(self._connect_popup_stage)
+        self._connect_popup_detail = QLabel("Press CONNECT SENSOR to begin guided connection.")
+        self._connect_popup_detail.setObjectName("SmallMuted")
+        self._connect_popup_detail.setWordWrap(True)
+        lay.addWidget(self._connect_popup_detail)
+        self._connect_popup_sensor = QLabel("Sensor found: waiting...")
+        self._connect_popup_sensor.setObjectName("SmallMuted")
+        self._connect_popup_sensor.setWordWrap(True)
+        lay.addWidget(self._connect_popup_sensor)
+        steps_box = QFrame()
+        steps_box.setObjectName("Panel")
+        steps_lay = QVBoxLayout(steps_box)
+        steps_lay.setContentsMargins(8, 6, 8, 6)
+        steps_lay.setSpacing(3)
+        self._connect_popup_steps = []
+        for _ in range(4):
+            s = QLabel("")
+            s.setObjectName("SmallMuted")
+            self._connect_popup_steps.append(s)
+            steps_lay.addWidget(s)
+        lay.addWidget(steps_box)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self._connect_popup_btn = QPushButton("Close")
+        self._connect_popup_btn.setObjectName("SecondaryBtn")
+        self._connect_popup_btn.clicked.connect(self._on_connect_popup_button)
+        row.addWidget(self._connect_popup_btn)
+        lay.addLayout(row)
+        self._connect_popup = dlg
+        self._reset_connect_step_states()
+
+    def _show_connect_popup(self):
+        self._ensure_connect_popup()
+        if self._connect_popup_btn is not None:
+            self._connect_popup_btn.setText("Close")
+        if self._connect_popup is not None:
+            self._connect_popup.show()
+            self._connect_popup.raise_()
+            self._connect_popup.activateWindow()
+
+    def _on_connect_popup_button(self):
+        if self._connect_popup is not None:
+            self._connect_popup.hide()
+
     def _auto_start_discovery(self):
         if self._thread and self._thread.isRunning():
             return
         self.statusBar().showMessage("Auto-discovery enabled: scanning for tennis BLE sensor...")
+        self._set_connection_wizard_state(
+            "Step 1/4 Discovering Sensor",
+            "Scanning for TENNIS_KY003 advertising the tennis BLE service...",
+        )
         self.start_worker()
 
     def _reset_link_badge(self):
@@ -3265,9 +3501,15 @@ class TennisDashboard(QMainWindow):
                 int(self._fw_calibration["min_valid_impact_mg"]),
             )
 
-    def _send_worker_command(self, text: str) -> bool:
+    def _send_worker_command(self, text: str, quiet_when_unavailable: bool = False) -> bool:
         if not self._worker:
             self.statusBar().showMessage("Sensor not connected.")
+            return False
+        if not self._worker.can_send_commands():
+            if not quiet_when_unavailable:
+                self.statusBar().showMessage(
+                    "Connected in telemetry-only mode: firmware command characteristic unavailable."
+                )
             return False
         self._worker.request_command(text)
         return True
@@ -3787,7 +4029,17 @@ class TennisDashboard(QMainWindow):
     def start_worker(self):
         if self._thread and self._thread.isRunning():
             return
+        self._show_connect_popup()
+        self._set_connection_wizard_sensor("Sensor found: scanning...")
+        self._reset_connect_step_states()
+        self._set_connect_step_state(0, "in_progress")
+        self.btn_connect.setEnabled(False)
+        self.btn_connect.setText("CONNECTING...")
         self.statusBar().showMessage("Connecting to real sensor...")
+        self._set_connection_wizard_state(
+            "Step 2/4 Linking BLE",
+            "Opening BLE link and subscribing to telemetry channels...",
+        )
         self.link_chip.setText("HANDSHAKE\n…")
         self.link_chip.setObjectName("ChipMuted")
         self.link_chip.style().polish(self.link_chip)
@@ -3806,7 +4058,7 @@ class TennisDashboard(QMainWindow):
 
     def stop_worker(self):
         if self._worker:
-            self._worker.request_command(STREAM_DISARM_COMMAND)
+            self._send_worker_command(STREAM_DISARM_COMMAND, quiet_when_unavailable=True)
             self._worker.stop()
         if self._thread and self._thread.isRunning():
             self._thread.quit()
@@ -3821,22 +4073,45 @@ class TennisDashboard(QMainWindow):
         self.telemetry.rpm_x10 = 0
         self.mode = "SIMULATION"
         self.simulation_enabled = True
+        self.btn_connect.setEnabled(True)
+        self.btn_connect.setText("CONNECT SENSOR")
         self.mode_chip.setText("MODE\nSIMULATION")
         self.sensors_chip.setText("SENSORS\nDISCONNECTED")
         self.sensors_chip.setObjectName("ChipErr")
         self.sensors_chip.style().polish(self.sensors_chip)
         self._reset_link_badge()
+        self._set_connection_wizard_state(
+            "Ready",
+            "Press CONNECT SENSOR to start the guided live connection.",
+        )
+        self._set_connection_wizard_sensor("Sensor found: waiting...")
+        self._reset_connect_step_states()
+        if self._connect_popup_btn is not None:
+            self._connect_popup_btn.setText("Close")
         self.statusBar().showMessage(
             "Simulation active until a real TENNIS_KY003 sensor is found (auto-scan on) or you press CONNECT SENSOR."
         )
 
     def _on_ble_handshake(self, pong_ok: bool):
+        self._last_handshake_ok = pong_ok
         if pong_ok:
             self.link_chip.setText("HANDSHAKE\nPONG ✓")
             self.link_chip.setObjectName("ChipLinkOk")
+            self._set_connect_step_state(2, "done")
+            self._set_connect_step_state(3, "done")
+            self._set_connection_wizard_state(
+                "Step 4/4 Live Stream Ready",
+                "Handshake succeeded. Firmware is responding to PING/PONG and live data is active.",
+            )
         else:
             self.link_chip.setText("HANDSHAKE\nNO PONG")
             self.link_chip.setObjectName("ChipLinkWarn")
+            self._set_connect_step_state(2, "warn")
+            self._set_connect_step_state(3, "done")
+            self._set_connection_wizard_state(
+                "Step 3/4 Handshake Warning",
+                "Connected but no PONG yet. Live stream may still run on older firmware builds.",
+            )
         self.link_chip.style().polish(self.link_chip)
 
     def _on_connected(self, ok: bool, addr: str):
@@ -3845,18 +4120,37 @@ class TennisDashboard(QMainWindow):
             self.simulation_enabled = False
             self.telemetry.ts = time.time()
             self._last_keepalive_sent = 0.0
+            self.btn_connect.setEnabled(False)
+            self.btn_connect.setText("LIVE CONNECTED")
             self.mode_chip.setText("MODE\nLIVE")
             self.sensors_chip.setText("SENSORS\nCONNECTED")
             self.sensors_chip.setObjectName("ChipOk")
+            self._set_connect_step_state(1, "done")
+            self._set_connect_step_state(2, "in_progress")
+            self._set_connection_wizard_sensor(f"Sensor found: {addr}")
             if self._worker:
-                self._worker.request_command(STREAM_ARM_COMMAND)
-                self._worker.request_command(CAL_GET_COMMAND)
-                self._worker.request_command("GATE:GET")
-                self._worker.request_command("RPM:GET")
+                self._send_worker_command(STREAM_ARM_COMMAND, quiet_when_unavailable=True)
+                self._send_worker_command(CAL_GET_COMMAND, quiet_when_unavailable=True)
+                self._send_worker_command("GATE:GET", quiet_when_unavailable=True)
+                self._send_worker_command("RPM:GET", quiet_when_unavailable=True)
+                if not self._worker.can_send_commands():
+                    self.link_chip.setText("HANDSHAKE\nN/A")
+                    self.link_chip.setObjectName("ChipMuted")
+                    self.link_chip.style().polish(self.link_chip)
+                    self._set_connect_step_state(2, "warn")
+                    self._set_connect_step_state(3, "done")
+                    self.statusBar().showMessage(
+                        "Connected in telemetry-only mode. Flash latest firmware to enable command channel."
+                    )
+            if self._connect_popup_btn is not None:
+                self._connect_popup_btn.setText("Close")
             self.statusBar().showMessage(f"Connected to sensor: {addr}")
         else:
             self.mode = "SIMULATION"
             self.simulation_enabled = True
+            self._last_handshake_ok = False
+            self.btn_connect.setEnabled(True)
+            self.btn_connect.setText("CONNECT SENSOR")
             self._impact_by_hit_count.clear()
             self._last_impact_reading = (0, 0, 0)
             self._last_gate_speed_mph = 0.0
@@ -3867,10 +4161,67 @@ class TennisDashboard(QMainWindow):
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
             self._reset_link_badge()
+            if self._thread and self._thread.isRunning():
+                self._set_connection_wizard_sensor("Sensor found: scanning...")
+                self._set_connect_step_state(0, "in_progress")
+                self._set_connection_wizard_state(
+                    "Step 1/4 Discovering Sensor",
+                    "Sensor not yet found. Keep device powered and close to your computer.",
+                )
+            else:
+                self._set_connection_wizard_sensor("Sensor found: waiting...")
+                self._reset_connect_step_states()
+                self._set_connection_wizard_state(
+                    "Ready",
+                    "Press CONNECT SENSOR to start the guided live connection.",
+                )
+            if self._connect_popup_btn is not None:
+                self._connect_popup_btn.setText("Close")
         self.sensors_chip.style().polish(self.sensors_chip)
 
     def _on_status(self, msg: str):
         self.statusBar().showMessage(msg)
+        m = msg.lower()
+        if "scanning" in m or "no tennis ble sensor found" in m:
+            self._set_connection_wizard_sensor("Sensor found: scanning...")
+            self._set_connect_step_state(0, "in_progress")
+            self._set_connection_wizard_state(
+                "Step 1/4 Discovering Sensor",
+                "Looking for TENNIS_KY003 advertising the tennis service UUID...",
+            )
+        elif "connecting to" in m:
+            self._set_connection_wizard_sensor(msg.replace("Connecting to ", "Sensor found: "))
+            self._set_connect_step_state(0, "done")
+            self._set_connect_step_state(1, "in_progress")
+            self._set_connection_wizard_state(
+                "Step 2/4 Linking BLE",
+                "Found sensor. Establishing BLE link and subscribing to notifications...",
+            )
+        elif "health check ok" in m or "pong" in m:
+            self._set_connect_step_state(2, "done")
+            self._set_connect_step_state(3, "done")
+            self._set_connection_wizard_state(
+                "Step 4/4 Live Stream Ready",
+                "Handshake confirmed. Live telemetry stream is healthy.",
+            )
+        elif "no pong" in m:
+            self._set_connect_step_state(2, "warn")
+            self._set_connect_step_state(3, "done")
+            self._set_connection_wizard_state(
+                "Step 3/4 Handshake Warning",
+                "Connected but no PONG health response yet. Firmware may be older.",
+            )
+        elif "telemetry-only mode" in m:
+            if not self._last_handshake_ok:
+                self._set_connect_step_state(2, "warn")
+                self._set_connect_step_state(3, "done")
+        elif "command failed" in m:
+            if not self._last_handshake_ok:
+                self._set_connect_step_state(2, "warn")
+                self._set_connection_wizard_state(
+                    "Step 3/4 Command Channel Issue",
+                    msg,
+                )
 
     def _on_gate_speed_packet(self, sample_id: int, speed_kmh_x10: int, transit_ms: int):
         _ = sample_id
@@ -3921,6 +4272,9 @@ class TennisDashboard(QMainWindow):
             self.telemetry.rate_x10 = rate_x10
         if rpm_x10 >= 0:
             self.telemetry.rpm_x10 = rpm_x10
+        elif rate_x10 >= 0:
+            ppr = max(1, int(self._fw_rpm_pulses_per_rev))
+            self.telemetry.rpm_x10 = int((rate_x10 * 60) / ppr)
         if count >= 0:
             prev = self.telemetry.count
             self.telemetry.count = count
@@ -3991,7 +4345,7 @@ class TennisDashboard(QMainWindow):
             return
         now = time.time()
         if (now - self._last_keepalive_sent) >= STREAM_KEEPALIVE_INTERVAL_S:
-            self._worker.request_command(STREAM_KEEPALIVE_COMMAND)
+            self._send_worker_command(STREAM_KEEPALIVE_COMMAND, quiet_when_unavailable=True)
             self._last_keepalive_sent = now
 
         if self.telemetry.ts <= 0:
@@ -4004,7 +4358,7 @@ class TennisDashboard(QMainWindow):
 
         self._last_stream_recovery = now
         self.statusBar().showMessage("Live stream stale. Re-arming realtime telemetry...")
-        self._worker.request_command(STREAM_ARM_COMMAND)
+        self._send_worker_command(STREAM_ARM_COMMAND, quiet_when_unavailable=True)
 
     def _refresh_ui(self, force: bool = False):
         if not self.shots and not force:
@@ -4116,8 +4470,18 @@ def main():
     app = QApplication(sys.argv)
     app.setFont(QFont("Arial", 10))
     w = TennisDashboard()
+    app.aboutToQuit.connect(w.stop_worker)
+
+    # Make Ctrl+C in terminal trigger a clean Qt shutdown.
+    signal.signal(signal.SIGINT, lambda *_args: app.quit())
+
     w.show()
-    sys.exit(app.exec())
+    try:
+        sys.exit(app.exec())
+    except KeyboardInterrupt:
+        w.stop_worker()
+        app.quit()
+        raise SystemExit(0)
 
 
 if __name__ == "__main__":
