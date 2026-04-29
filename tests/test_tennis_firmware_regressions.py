@@ -91,6 +91,45 @@ def test_tennis_streaming_defaults_to_on_without_keepalive_gate():
     assert "if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {" in sketch
 
 
+def test_tennis_stream_is_rearmed_on_each_new_client_connection():
+    """Regression guard for the bug where the default-on stream flag was
+    cleared in the not-connected branch of publishBleTelemetry, so commandless
+    devices never received telemetry after boot.
+    """
+    sketch = read_text(SKETCH)
+
+    publish_marker = "static void publishBleTelemetry"
+    publish_idx = sketch.find(publish_marker)
+    assert publish_idx >= 0, "publishBleTelemetry function must exist"
+
+    # Walk forward to find the function body and the next top-level function so
+    # we only inspect publishBleTelemetry itself.
+    next_static = sketch.find("\nstatic ", publish_idx + len(publish_marker))
+    next_void = sketch.find("\nvoid ", publish_idx + len(publish_marker))
+    end_candidates = [c for c in (next_static, next_void) if c >= 0]
+    publish_end = min(end_candidates) if end_candidates else len(sketch)
+    publish_body = sketch[publish_idx:publish_end]
+
+    # Edge-trigger pattern: track previous connection state and re-arm on rise.
+    assert "static bool s_wasConnected" in publish_body, (
+        "publishBleTelemetry must remember previous connection state"
+    )
+    assert "g_streamEnabled = (BLE_STREAM_DEFAULT_ENABLED != 0);" in publish_body, (
+        "publishBleTelemetry must re-arm g_streamEnabled to firmware default on a fresh client connection"
+    )
+
+    # Anti-pattern guard: do NOT clear g_streamEnabled while the device is just
+    # waiting for a client. That was the regression that silenced telemetry.
+    not_connected_idx = publish_body.find("if (!nowConnected)")
+    assert not_connected_idx >= 0, "expected the disconnected branch in publishBleTelemetry"
+    next_brace = publish_body.find("}", not_connected_idx)
+    assert next_brace >= 0
+    not_connected_branch = publish_body[not_connected_idx:next_brace]
+    assert "g_streamEnabled = false" not in not_connected_branch, (
+        "publishBleTelemetry must not auto-disable the stream while waiting for a client"
+    )
+
+
 def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     sensor_h = read_text(SENSOR_H)
     sensor_cpp = read_text(SENSOR_CPP)

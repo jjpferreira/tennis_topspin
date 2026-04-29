@@ -201,14 +201,27 @@ def _tennis_device_rank(device: BLEDevice, adv: AdvertisementData | None) -> int
 
 
 def _best_tennis_from_adv_map(adv_map: dict[str, tuple[BLEDevice, AdvertisementData]]) -> BLEDevice | None:
+    """Return the strongest BLE candidate that genuinely matches the tennis
+    firmware advertisement (name prefix or tennis service UUID).
+
+    Devices that don't satisfy either criterion are excluded — we never
+    connect to unrelated nearby BLE peripherals.
+    """
     best = None
-    best_rank = -10_000
+    best_rank = 0  # rank 0 == no match at all → ignored
+    excluded: list[str] = []
     for _addr, pair in adv_map.items():
         d, adv = pair
         r = _tennis_device_rank(d, adv)
+        if r <= 0:
+            label = _device_local_name(d, adv) or d.address
+            excluded.append(label)
+            continue
         if r > best_rank:
             best_rank = r
             best = d
+    if excluded:
+        print(f"[BLE-FILTER] ignored {len(excluded)} non-tennis device(s): {excluded[:6]}", flush=True)
     return best
 
 
@@ -2168,12 +2181,21 @@ class TennisBleWorker(QObject):
         if picked:
             return picked
 
-        # 3) Legacy path if the stack omits advertisement parsing.
+        # 3) Legacy path if the stack omits advertisement parsing — strict
+        #    name-prefix match only. Any other advertisers are ignored.
         devices = await BleakScanner.discover(timeout=BLE_DISCOVER_TIMEOUT_S)
+        ignored_legacy: list[str] = []
         for d in devices:
             nm = _device_local_name(d, None)
             if nm and nm.startswith(NAME_PREFIX):
                 return d
+            if nm:
+                ignored_legacy.append(nm)
+        if ignored_legacy:
+            print(
+                f"[BLE-FILTER] legacy scan ignored {len(ignored_legacy)} device(s): {ignored_legacy[:6]}",
+                flush=True,
+            )
         return None
 
     async def _disconnect(self):
