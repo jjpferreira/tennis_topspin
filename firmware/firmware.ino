@@ -401,6 +401,7 @@ static uint32_t sinceMs(uint32_t nowMs, uint32_t lastMs) {
 
 static void publishSensorHealth(uint32_t nowMs) {
     static uint32_t lastHealthMs = 0;
+    static uint32_t lastHealthLogMs = 0;
     if ((nowMs - lastHealthMs) < 1000u) return;
     if (!bleHandler.isConnected()) return;
     lastHealthMs = nowMs;
@@ -418,6 +419,19 @@ static void publishSensorHealth(uint32_t nowMs) {
         sinceMs(nowMs, impactSensor.getLastImpactMs()),
         impactSensor.getBaselineMagnitudeMg()
     );
+
+    // Heartbeat log so we can confirm health is flowing during field debugging.
+    if ((nowMs - lastHealthLogMs) >= 5000u) {
+        lastHealthLogMs = nowMs;
+        Serial.print(F("[HEALTH] main_hits="));
+        Serial.print(sensor.getHitCount());
+        Serial.print(F(" gateA_hits="));
+        Serial.print(gateStartSensor.getHitCount());
+        Serial.print(F(" gateB_hits="));
+        Serial.print(gateEndSensor.getHitCount());
+        Serial.print(F(" impact_baseline_mg="));
+        Serial.println(impactSensor.getBaselineMagnitudeMg());
+    }
 }
 
 static void updateLedFeedback(uint32_t nowMs) {

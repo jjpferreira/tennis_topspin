@@ -2023,6 +2023,9 @@ class TennisBleWorker(QObject):
         writable_fallback = None
         tennis_service_seen = False
         tennis_writable_uuids: list[str] = []
+        # IMPORTANT: enumerate all characteristics across all services. Do NOT
+        # break early — _available_char_uuids feeds health/feature detection
+        # for the entire connection.
         for service in services:
             if service.uuid.lower() == TENNIS_SERVICE_UUID.lower():
                 tennis_service_seen = True
@@ -2030,18 +2033,17 @@ class TennisBleWorker(QObject):
                 self._available_char_uuids.add(ch.uuid.lower())
                 props = [str(p) for p in (ch.properties or [])]
                 is_writable = self._has_prop(props, "write")
-                is_notify = self._has_prop(props, "notify")
+                _ = self._has_prop(props, "notify")
                 if ch.uuid.lower() == COMMAND_UUID.lower():
                     command_exact = ch
-                if service.uuid.lower() == TENNIS_SERVICE_UUID.lower() and is_writable and writable_fallback is None:
+                if (
+                    service.uuid.lower() == TENNIS_SERVICE_UUID.lower()
+                    and is_writable
+                    and writable_fallback is None
+                ):
                     writable_fallback = ch
                 if service.uuid.lower() == TENNIS_SERVICE_UUID.lower() and is_writable:
                     tennis_writable_uuids.append(ch.uuid)
-
-                if command_exact is not None:
-                    break
-            if command_exact is not None:
-                break
 
         selected = command_exact or writable_fallback
         if selected is None:
@@ -2117,21 +2119,36 @@ class TennisBleWorker(QObject):
                 await self._client.start_notify(SENSOR_STATE_UUID, self._on_state)
                 await self._client.start_notify(HIT_COUNT_UUID, self._on_count)
                 await self._client.start_notify(RATE_X10_UUID, self._on_rate)
-                try:
-                    await self._client.start_notify(RPM_X10_UUID, self._on_rpm)
-                except Exception:
+                if RPM_X10_UUID.lower() in self._available_char_uuids:
+                    try:
+                        await self._client.start_notify(RPM_X10_UUID, self._on_rpm)
+                    except Exception:
+                        self.status.emit("RPM characteristic unavailable on this firmware.")
+                else:
                     self.status.emit("RPM characteristic unavailable on this firmware.")
-                try:
-                    await self._client.start_notify(IMPACT_UUID, self._on_impact)
-                except Exception:
+                if IMPACT_UUID.lower() in self._available_char_uuids:
+                    try:
+                        await self._client.start_notify(IMPACT_UUID, self._on_impact)
+                    except Exception:
+                        self.status.emit("Impact characteristic unavailable on this firmware.")
+                else:
                     self.status.emit("Impact characteristic unavailable on this firmware.")
-                try:
-                    await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
-                except Exception:
+                if GATE_SPEED_UUID.lower() in self._available_char_uuids:
+                    try:
+                        await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
+                    except Exception:
+                        self.status.emit("Gate speed characteristic unavailable on this firmware.")
+                else:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
-                try:
-                    await self._client.start_notify(HEALTH_UUID, self._on_health)
-                except Exception:
+                if HEALTH_UUID.lower() in self._available_char_uuids:
+                    try:
+                        await self._client.start_notify(HEALTH_UUID, self._on_health)
+                    except Exception:
+                        self.status.emit("Sensor health characteristic unavailable on this firmware.")
+                else:
+                    # On macOS Bleak silently accepts non-existent UUIDs, so we
+                    # MUST gate on the discovered service table or we will sit
+                    # forever on "Listening for first health frame".
                     self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
@@ -2526,11 +2543,20 @@ class TennisDashboard(QMainWindow):
         self.link_chip = QLabel("HANDSHAKE\n—")
         self.link_chip.setObjectName("ChipMuted")
         self.link_chip.setMinimumWidth(102)
-        self.health_chip = QLabel("SENSOR HEALTH\n— pending")
+        self.health_chip = QPushButton("SENSOR HEALTH\n— pending")
         self.health_chip.setObjectName("ChipMuted")
-        self.health_chip.setMinimumWidth(160)
-        self.health_chip.setToolTip("Sensor health: hover for per-sensor details")
+        self.health_chip.setMinimumWidth(170)
+        self.health_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.health_chip.setToolTip("Click to view per-sensor health detail")
+        self.health_chip.clicked.connect(self._toggle_health_popup)
         self._latest_health: dict | None = None
+        self._health_popup: QFrame | None = None
+        self._health_popup_rows: dict[str, dict] = {}
+        self._health_supported: bool = True
+        self._health_first_packet_t: float | None = None
+        self._health_last_packet_t: float | None = None
+        self._health_connect_t: float | None = None
+        self._health_freshness_state: str = "idle"
         self.btn_stats_menu = QPushButton("📊")
         self.btn_stats_menu.setObjectName("IconBtn")
         self.btn_stats_menu.setFixedSize(30, 22)
@@ -3834,7 +3860,21 @@ class TennisDashboard(QMainWindow):
             #SmallMuted { color: #a1b5cc; font-size: 10px; }
             #ChipOk, #ChipErr, #ChipWarn, #ChipMuted, #ChipLinkOk, #ChipLinkWarn {
                 border: 1px solid #1f4368; border-radius: 7px; padding: 6px;
-                font-size: 10px; font-weight: 800; qproperty-alignment: AlignCenter;
+                font-size: 10px; font-weight: 800;
+            }
+            /* qproperty-alignment is QLabel-only — applying it to QPushButton
+               causes a runtime "does not have a property named alignment" warning. */
+            QLabel#ChipOk, QLabel#ChipErr, QLabel#ChipWarn, QLabel#ChipMuted,
+            QLabel#ChipLinkOk, QLabel#ChipLinkWarn {
+                qproperty-alignment: AlignCenter;
+            }
+            QPushButton#ChipOk, QPushButton#ChipErr, QPushButton#ChipWarn, QPushButton#ChipMuted {
+                background: #061327; padding: 6px 10px;
+                text-align: center;
+            }
+            QPushButton#ChipOk:hover, QPushButton#ChipErr:hover,
+            QPushButton#ChipWarn:hover, QPushButton#ChipMuted:hover {
+                background: #0a1f3a;
             }
             #ChipOk { color: #8ff0af; }
             #ChipErr { color: #ff7f7f; }
@@ -3954,6 +3994,7 @@ class TennisDashboard(QMainWindow):
     def _tick_clock(self):
         now = datetime.now()
         self.clock_lbl.setText(now.strftime("%I:%M:%S %p\n%b %d, %Y"))
+        self._check_health_freshness()
 
     def _simulation_tick(self):
         if self.paused:
@@ -4234,6 +4275,18 @@ class TennisDashboard(QMainWindow):
             self.simulation_enabled = False
             self.telemetry.ts = time.time()
             self._last_keepalive_sent = 0.0
+            self._health_supported = True
+            self._health_first_packet_t = None
+            self._health_last_packet_t = None
+            self._health_connect_t = time.time()
+            self._health_freshness_state = "listening"
+            self.health_chip.setText("SENSOR HEALTH\nlistening…")
+            self.health_chip.setObjectName("ChipMuted")
+            self.health_chip.style().polish(self.health_chip)
+            self.health_chip.setToolTip(
+                "Waiting for first health frame from firmware (1 Hz).\n"
+                "If this never arrives, your firmware is older than the new health protocol."
+            )
             self.btn_connect.setEnabled(False)
             self.btn_connect.setText("LIVE CONNECTED")
             self.mode_chip.setText("MODE\nLIVE")
@@ -4279,8 +4332,15 @@ class TennisDashboard(QMainWindow):
             self.health_chip.setText("SENSOR HEALTH\n— pending")
             self.health_chip.setObjectName("ChipMuted")
             self.health_chip.style().polish(self.health_chip)
-            self.health_chip.setToolTip("Sensor health: hover for per-sensor details")
+            self.health_chip.setToolTip("Click to view per-sensor health detail")
             self._latest_health = None
+            self._health_supported = True
+            self._health_first_packet_t = None
+            self._health_last_packet_t = None
+            self._health_connect_t = None
+            self._health_freshness_state = "idle"
+            if self._health_popup is not None and self._health_popup.isVisible():
+                self._health_popup.hide()
             self._reset_link_badge()
             if self._thread and self._thread.isRunning():
                 self._set_connection_wizard_sensor("Sensor found: scanning...")
@@ -4343,6 +4403,8 @@ class TennisDashboard(QMainWindow):
                     "Step 3/4 Command Channel Issue",
                     msg,
                 )
+        elif "sensor health characteristic unavailable" in m:
+            self._mark_health_unavailable()
 
     def _on_gate_speed_packet(self, sample_id: int, speed_kmh_x10: int, transit_ms: int):
         _ = sample_id
@@ -4382,8 +4444,176 @@ class TennisDashboard(QMainWindow):
             return ("warn", f"baseline {baseline} mg (off-axis or calibration)")
         return ("err", f"baseline {baseline} mg (likely floating)")
 
+    def _build_health_popup(self) -> QFrame:
+        popup = QFrame(self)
+        popup.setObjectName("HealthPopup")
+        popup.setWindowFlags(Qt.WindowType.Popup)
+        popup.setStyleSheet(
+            """
+            #HealthPopup {
+                background: #061327; border: 1px solid #1f4368; border-radius: 10px;
+            }
+            QLabel { color: #d6e8fb; }
+            QLabel#HealthTitle { color: #8ff0af; font-weight: 800; font-size: 12px; }
+            QLabel#HealthRowName { font-weight: 800; font-size: 11px; }
+            QLabel#HealthRowGlyph { font-size: 18px; font-weight: 800; }
+            QLabel#HealthRowDetail { color: #a1b5cc; font-size: 10px; }
+            """
+        )
+        layout = QVBoxLayout(popup)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+        title = QLabel("Sensor Health")
+        title.setObjectName("HealthTitle")
+        layout.addWidget(title)
+
+        def make_row(key: str, label: str) -> QHBoxLayout:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            glyph = QLabel("…")
+            glyph.setObjectName("HealthRowGlyph")
+            glyph.setFixedWidth(22)
+            name = QLabel(label)
+            name.setObjectName("HealthRowName")
+            name.setFixedWidth(150)
+            detail = QLabel("Waiting for data…")
+            detail.setObjectName("HealthRowDetail")
+            detail.setWordWrap(True)
+            row.addWidget(glyph)
+            row.addWidget(name)
+            row.addWidget(detail, 1)
+            self._health_popup_rows[key] = {"glyph": glyph, "detail": detail}
+            return row
+
+        layout.addLayout(make_row("main", "Main (KY-003 GPIO 4)"))
+        layout.addLayout(make_row("gate_a", "Gate A (KY-003 GPIO 26)"))
+        layout.addLayout(make_row("gate_b", "Gate B (KY-003 GPIO 27)"))
+        layout.addLayout(make_row("impact", "Impact (ADXL335)"))
+
+        hint = QLabel("Click outside to dismiss. Updates every second while connected.")
+        hint.setStyleSheet("color: #7a8fa8; font-size: 10px;")
+        layout.addWidget(hint)
+
+        popup.setMinimumWidth(420)
+        return popup
+
+    def _toggle_health_popup(self):
+        if self._health_popup is None:
+            self._health_popup = self._build_health_popup()
+        if self._health_popup.isVisible():
+            self._health_popup.hide()
+            return
+        if self._latest_health is not None:
+            self._refresh_health_popup()
+        else:
+            self._refresh_health_popup_no_data()
+        chip_pos = self.health_chip.mapToGlobal(self.health_chip.rect().bottomLeft())
+        self._health_popup.move(chip_pos.x(), chip_pos.y() + 4)
+        self._health_popup.show()
+
+    def _refresh_health_popup_no_data(self):
+        """Populate the popup when we have no health frames yet."""
+        if not self._health_popup:
+            return
+        if not self._health_supported:
+            glyph = "✗"
+            color = "#ff7f7f"
+            detail = (
+                "Firmware does not advertise the health characteristic. "
+                "Reflash with the latest firmware to enable per-sensor diagnostics."
+            )
+        elif self.mode != "LIVE":
+            glyph = "·"
+            color = "#7a8fa8"
+            detail = "Connect a live sensor to receive health telemetry (1 Hz)."
+        else:
+            glyph = "…"
+            color = "#ffd78a"
+            detail = "Listening for first health frame from firmware…"
+        for row in self._health_popup_rows.values():
+            row["glyph"].setText(glyph)
+            row["glyph"].setStyleSheet(f"color: {color};")
+            row["detail"].setText(detail)
+
+    def _mark_health_unavailable(self):
+        if not self._health_supported:
+            return  # already in unavailable state — avoid restyle spam
+        self._health_supported = False
+        self._health_freshness_state = "unavailable"
+        self.health_chip.setText("SENSOR HEALTH\nfw upgrade")
+        self.health_chip.setObjectName("ChipErr")
+        self.health_chip.style().polish(self.health_chip)
+        self.health_chip.setToolTip(
+            "Firmware does not expose the sensor-health characteristic.\n"
+            "Reflash with the latest firmware to enable per-sensor diagnostics."
+        )
+        if self._health_popup is not None and self._health_popup.isVisible():
+            self._refresh_health_popup_no_data()
+
+    def _check_health_freshness(self):
+        """Called on the UI tick. Updates the chip only when the *state*
+        transitions (no-frames / stale / healthy), so we don't re-polish the
+        stylesheet every second and don't spam Qt warnings."""
+        if self.mode != "LIVE" or self._health_connect_t is None:
+            return
+        if not self._health_supported:
+            return  # already showing 'fw upgrade'
+        now_t = time.time()
+        if self._health_last_packet_t is None:
+            elapsed = now_t - self._health_connect_t
+            if elapsed > 4.0 and self._health_freshness_state != "no_frames":
+                self._health_freshness_state = "no_frames"
+                self.health_chip.setText("SENSOR HEALTH\nno frames")
+                self.health_chip.setObjectName("ChipWarn")
+                self.health_chip.style().polish(self.health_chip)
+                self.health_chip.setToolTip(
+                    f"Connected for {elapsed:0.1f}s but no health frames received yet.\n"
+                    "Possible causes:\n"
+                    "  • Firmware is older than the health-protocol release — reflash to upgrade.\n"
+                    "  • BLE notify subscription was rejected — check status bar."
+                )
+            return
+        stale = now_t - self._health_last_packet_t
+        if stale > 3.0 and self._health_freshness_state != "stale":
+            self._health_freshness_state = "stale"
+            self.health_chip.setText(f"SENSOR HEALTH\nstale {stale:0.0f}s")
+            self.health_chip.setObjectName("ChipWarn")
+            self.health_chip.style().polish(self.health_chip)
+            self.health_chip.setToolTip(
+                f"Last health frame received {stale:0.1f}s ago. Firmware may have stalled."
+            )
+
+    def _refresh_health_popup(self):
+        if not self._health_popup or not self._latest_health:
+            return
+        glyph_for = {"ok": "✓", "warn": "⚠", "err": "✗"}
+        color_for = {
+            "ok": "#8ff0af",
+            "warn": "#ffd78a",
+            "err": "#ff7f7f",
+        }
+        sections = (
+            ("main", self._classify_ky003_health(self._latest_health.get("main", {}))),
+            ("gate_a", self._classify_ky003_health(self._latest_health.get("gate_a", {}))),
+            ("gate_b", self._classify_ky003_health(self._latest_health.get("gate_b", {}))),
+            ("impact", self._classify_impact_health(self._latest_health.get("impact", {}))),
+        )
+        for key, (status, detail) in sections:
+            row = self._health_popup_rows.get(key)
+            if not row:
+                continue
+            row["glyph"].setText(glyph_for[status])
+            row["glyph"].setStyleSheet(f"color: {color_for[status]};")
+            row["detail"].setText(detail)
+
     def _on_sensor_health(self, payload: dict):
         self._latest_health = payload
+        now_t = time.time()
+        if self._health_first_packet_t is None:
+            self._health_first_packet_t = now_t
+        self._health_last_packet_t = now_t
+        self._health_supported = True
+        self._health_freshness_state = "healthy"
         main_s, main_d = self._classify_ky003_health(payload.get("main", {}))
         a_s, a_d = self._classify_ky003_health(payload.get("gate_a", {}))
         b_s, b_d = self._classify_ky003_health(payload.get("gate_b", {}))
@@ -4407,12 +4637,14 @@ class TennisDashboard(QMainWindow):
         )
         self.health_chip.style().polish(self.health_chip)
         self.health_chip.setToolTip(
-            "Sensor Health\n"
+            "Sensor Health (click for full detail)\n"
             f"  Main (GPIO 4):    {glyph[main_s]} {main_d}\n"
             f"  Gate A (GPIO 26): {glyph[a_s]} {a_d}\n"
             f"  Gate B (GPIO 27): {glyph[b_s]} {b_d}\n"
             f"  Impact (ADXL):    {glyph[imp_s]} {imp_d}"
         )
+        if self._health_popup is not None and self._health_popup.isVisible():
+            self._refresh_health_popup()
 
     def _on_impact_packet(
         self,
