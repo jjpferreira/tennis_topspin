@@ -205,6 +205,7 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "uint16_t getRateX10(uint32_t nowMs) const;" in sensor_h
     assert "bool shouldCountEdge(uint8_t previous, uint8_t current) const;" in sensor_h
     assert "#define KY003_DEBOUNCE_MS 8u" in config_h
+    assert "#define KY003_GATE_DEBOUNCE_MS 1u" in config_h
     assert "#define KY003_RATE_WINDOW_MS 5000u" in config_h
     assert "#define KY003_GATE_START_PIN" in config_h
     assert "#define KY003_GATE_END_PIN" in config_h
@@ -283,7 +284,10 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "bleHandler.pushImpact(" in sketch
     assert "gateStartSensor.begin();" in sketch
     assert "gateEndSensor.begin();" in sketch
+    assert "static_cast<uint16_t>(KY003_GATE_DEBOUNCE_MS)" in sketch
     assert "updateGateSpeedState(nowUs, gateStartEdge, gateEndEdge);" in sketch
+    assert "const bool hadPendingStart = g_gateSpeed.awaitingEnd;" in sketch
+    assert "if (startEdge && hadPendingStart)" in sketch
     assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitUs);" in sketch
     assert "impact.magnitudeMg," in sketch
     assert "impact.valid" in sketch

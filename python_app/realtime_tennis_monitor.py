@@ -2073,11 +2073,6 @@ class TennisBleWorker(QObject):
         # Session lock: after we accept one TENNIS_KY003* peripheral, never hop
         # to a different BLE address in this app run.
         self._locked_address: str | None = None
-        # Once we have connected to a valid tennis sensor, disable automatic
-        # background scanning forever for this worker run. If the sensor later
-        # disconnects, we pause and wait for an explicit user reconnect rather
-        # than searching for "whatever is nearby".
-        self._scan_frozen_after_first_lock: bool = False
         self._pending_cmd_ack: asyncio.Future[str] | None = None
         self._command_char_uuid: str | None = None
         self._command_notify_uuid: str | None = None
@@ -2219,23 +2214,13 @@ class TennisBleWorker(QObject):
                     self.status.emit("No tennis BLE sensor found, rescanning...")
                     await asyncio.sleep(1.5)
                     continue
-                # Belt-and-suspenders: even though `_find_device` only ever
-                # returns devices whose advertised local name starts with
-                # NAME_PREFIX, we re-validate here so it is impossible for a
-                # bug in scan ranking to ever connect us to anything that does
-                # not follow the firmware's naming convention.
-                final_name = device.name or ""
-                if not final_name.startswith(NAME_PREFIX):
-                    ble_log.warning(
-                        "refusing to connect to %s — name '%s' does not start with %s*",
-                        device.address, final_name or "<none>", NAME_PREFIX,
-                    )
-                    self.status.emit(
-                        f"Ignored non-tennis device {final_name or device.address} "
-                        f"(must be {NAME_PREFIX}*). Rescanning…"
-                    )
-                    await asyncio.sleep(1.0)
-                    continue
+                # IMPORTANT: `_find_device` already applies strict tennis
+                # filtering using advertisement local_name + UUID ranking.
+                # Do not re-validate using only `device.name` here: on macOS
+                # CoreBluetooth frequently leaves `device.name` empty even when
+                # adv.local_name is valid (e.g. TENNIS_KY003), which causes
+                # false negatives and endless "no sensor" loops.
+                final_name = device.name or NAME_PREFIX
                 if self._locked_address and device.address.lower() != self._locked_address.lower():
                     ble_log.warning(
                         "ignoring tennis-looking device %s (%s) because session is locked to %s",
@@ -2402,7 +2387,6 @@ class TennisBleWorker(QObject):
                 self.connected.emit(True, device.address)
                 if self._locked_address is None:
                     self._locked_address = device.address
-                    self._scan_frozen_after_first_lock = True
                     ble_log.info("session BLE lock set: %s", self._locked_address)
                 if ping_ok:
                     self.status.emit("Connected — health check OK (PONG). Live streaming.")
@@ -2423,13 +2407,6 @@ class TennisBleWorker(QObject):
             finally:
                 await self._disconnect()
                 self.connected.emit(False, self._target_address or "")
-                if self._scan_frozen_after_first_lock and self._locked_address:
-                    self.status.emit(
-                        "Locked sensor disconnected. Auto-scan is paused by design "
-                        "(prevents hopping). Press Connect to retry this sensor."
-                    )
-                    self._running = False
-                    break
                 if self._running:
                     await asyncio.sleep(1.0)
 
@@ -4452,12 +4429,15 @@ class TennisDashboard(QMainWindow):
         self.telemetry.count = 0
         self.telemetry.rate_x10 = 0
         self.telemetry.rpm_x10 = 0
+        self.telemetry.gate_speed_mph = 0.0
         self.telemetry.state = 0
         self.play_queue = 0
         self._last_count_sample_val = 0
         self._last_count_sample_ts = 0.0
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._last_gate_speed_mph = 0.0
+        self._last_gate_speed_ts = 0.0
         self._drill_hits = 0
         self._drill_attempts = 0
         self._drill_goal_announced = False
@@ -5207,26 +5187,18 @@ class TennisDashboard(QMainWindow):
                     impact_x, impact_y, redness = impact
                     prof = self._current_competition_profile()
                     rate = self.telemetry.rate_x10 / 10.0
-                    model_speed = max(
+                    # LIVE speed must come from Gate A/B only. This keeps RPM
+                    # independent so a main hall pulse cannot mutate ball speed.
+                    now = time.time()
+                    if (now - self._last_gate_speed_ts) > 0.90 or self._last_gate_speed_mph <= 0.1:
+                        continue
+                    speed = max(
                         prof["live_speed_min"],
                         min(
                             prof["live_speed_max"],
-                            prof["live_speed_base"]
-                            + rate * prof["live_rate_mul"]
-                            + (redness * prof["live_red_mul"])
-                            + random.uniform(-2.0, 2.0),
+                            self._last_gate_speed_mph,
                         ),
                     )
-                    speed = model_speed
-                    now = time.time()
-                    if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:
-                        speed = max(
-                            prof["live_speed_min"],
-                            min(
-                                prof["live_speed_max"],
-                                self._last_gate_speed_mph * 0.72 + model_speed * 0.28,
-                            ),
-                        )
                     arm = max(
                         -prof["live_arm_abs"],
                         min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),
@@ -5280,8 +5252,6 @@ class TennisDashboard(QMainWindow):
         self._send_worker_command(STREAM_ARM_COMMAND, quiet_when_unavailable=True)
 
     def _refresh_ui(self, force: bool = False):
-        if not self.shots and not force:
-            return
         latest = self.shots[-1] if self.shots else None
         if latest:
             self.ms_speed.set_value(latest.speed, "#90df6a")
@@ -5307,6 +5277,11 @@ class TennisDashboard(QMainWindow):
             self.lbl_gate_speed.setText(f"Gate Speed         {gate_speed_text}")
             self.impact_widget.set_impact(latest.impact_x, latest.impact_y, latest.impact_redness)
         else:
+            # No shot reconstructed yet (e.g. waiting for first Gate A/B speed
+            # pair). Keep core live telemetry visible so RPM/speed don't look
+            # frozen while the stream is active.
+            live_speed = self.telemetry.gate_speed_mph if self.telemetry.gate_speed_mph > 0.0 else 0.0
+            self.ms_speed.set_value(live_speed, "#90df6a")
             self.lbl_impact_xy.setText("Impact Offset      +0, +0")
             self.lbl_impact_red.setText("Impact Redness     0%")
             self.lbl_live_rpm.setText(f"Live RPM           {self.telemetry.rpm_x10 / 10.0:.1f}")

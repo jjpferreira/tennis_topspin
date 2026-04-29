@@ -21,8 +21,20 @@
 #endif
 
 KY003Sensor sensor;
-KY003Sensor gateStartSensor(KY003_GATE_START_PIN);
-KY003Sensor gateEndSensor(KY003_GATE_END_PIN);
+KY003Sensor gateStartSensor(
+    KY003_GATE_START_PIN,
+    (KY003_COUNT_ON_FALLING_EDGE != 0),
+    (KY003_INPUT_PULLUP != 0),
+    static_cast<uint16_t>(KY003_GATE_DEBOUNCE_MS),
+    static_cast<uint32_t>(KY003_RATE_WINDOW_MS)
+);
+KY003Sensor gateEndSensor(
+    KY003_GATE_END_PIN,
+    (KY003_COUNT_ON_FALLING_EDGE != 0),
+    (KY003_INPUT_PULLUP != 0),
+    static_cast<uint16_t>(KY003_GATE_DEBOUNCE_MS),
+    static_cast<uint32_t>(KY003_RATE_WINDOW_MS)
+);
 ADXL335Sensor impactSensor;
 BLEHandler& bleHandler = BLEHandler::getInstance();
 #if LED_RING_ENABLED
@@ -127,15 +139,28 @@ static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
     if (g_gateSpeed.awaitingEnd && (nowUs - g_gateSpeed.startUs) > KY003_GATE_MAX_TRANSIT_US) {
         g_gateSpeed.awaitingEnd = false;
     }
+    const bool hadPendingStart = g_gateSpeed.awaitingEnd;
+    const uint32_t pendingStartUs = g_gateSpeed.startUs;
+
     if (startEdge) {
         g_gateSpeed.awaitingEnd = true;
         g_gateSpeed.startUs = nowUs;
+    }
+    if (!endEdge) {
         return;
     }
-    if (!g_gateSpeed.awaitingEnd || !endEdge || nowUs <= g_gateSpeed.startUs) {
+
+    // If both edges are seen in the same loop tick, prefer the previously
+    // pending start edge (from an earlier tick) so we don't drop the sample.
+    uint32_t startUs = g_gateSpeed.startUs;
+    if (startEdge && hadPendingStart) {
+        startUs = pendingStartUs;
+    }
+
+    if (nowUs <= startUs) {
         return;
     }
-    uint32_t dtUs = nowUs - g_gateSpeed.startUs;
+    uint32_t dtUs = nowUs - startUs;
     g_gateSpeed.awaitingEnd = false;
     if (dtUs < KY003_GATE_MIN_TRANSIT_US || dtUs > KY003_GATE_MAX_TRANSIT_US) {
         return;
