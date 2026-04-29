@@ -3,26 +3,6 @@
     "Student 1": [
       {
         "student": "Student 1",
-        "started_at": "2026-04-28T18:55:30",
-        "shot_count": 116,
-        "avg_speed": 56.17,
-        "avg_spin": 1201.76,
-        "consistency": 64,
-        "fast_pct": 24.14,
-        "avg_impact_redness": 35.76
-      },
-      {
-        "student": "Student 1",
-        "started_at": "2026-04-28T19:00:31",
-        "shot_count": 300,
-        "avg_speed": 54.29,
-        "avg_spin": 1169.48,
-        "consistency": 64,
-        "fast_pct": 19.67,
-        "avg_impact_redness": 33.22
-      },
-      {
-        "student": "Student 1",
         "started_at": "2026-04-28T19:11:51",
         "shot_count": 34,
         "avg_speed": 73.49,
@@ -437,6 +417,28 @@
         "consistency": 66,
         "fast_pct": 0.0,
         "avg_impact_redness": 30.08
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-29T07:50:37",
+        "shot_count": 7,
+        "avg_speed": 42.31,
+        "avg_spin": 728.71,
+        "consistency": 53,
+        "fast_pct": 0.0,
+        "avg_impact_redness": 29.14
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Professional",
+        "started_at": "2026-04-29T07:55:11",
+        "shot_count": 20,
+        "avg_speed": 72.72,
+        "avg_spin": 2201.75,
+        "consistency": 76,
+        "fast_pct": 60.0,
+        "avg_impact_redness": 70.55
       }
     ],
     "John Sanchez": [
@@ -454,7 +456,7 @@
     ]
   },
   "competition_levels": {
-    "Student 1": "Newbie",
+    "Student 1": "Professional",
     "John Sanchez": "Competitive"
   }
 }

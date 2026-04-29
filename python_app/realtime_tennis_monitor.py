@@ -2045,12 +2045,27 @@ class TennisDashboard(QMainWindow):
         hh.addLayout(title_col)
         hh.addStretch(1)
 
-        self.level_chip = QPushButton("LEVEL\nCOMPETITIVE")
+        self.level_chip = QPushButton("LEVEL\nCOMPETITIVE ▾")
         self.level_chip.setObjectName("ChipLevel")
-        self.level_chip.setMinimumWidth(120)
-        self.level_chip.clicked.connect(self._cycle_competition_level)
-        self.level_chip.setToolTip("Click to change level")
+        self.level_chip.setMinimumWidth(142)
+        self.level_chip.clicked.connect(self._toggle_level_chip_popup)
+        self.level_chip.setToolTip("Select competition level")
         hh.addWidget(self.level_chip)
+        self.level_chip_popup = QFrame(self, Qt.WindowType.Popup)
+        self.level_chip_popup.setObjectName("LevelPopup")
+        popup_lay = QVBoxLayout(self.level_chip_popup)
+        popup_lay.setContentsMargins(8, 8, 8, 8)
+        popup_lay.setSpacing(6)
+        self._level_chip_buttons: dict[str, QPushButton] = {}
+        for level in self._competition_profiles.keys():
+            short = {"Newbie": "NEWBIE", "Competitive": "COMPETITIVE", "Professional": "PRO"}.get(
+                level, level.upper()
+            )
+            btn = QPushButton(short)
+            btn.setObjectName("LevelOptionChip")
+            btn.clicked.connect(lambda _checked=False, lvl=level: self._on_level_chip_selected(lvl))
+            popup_lay.addWidget(btn)
+            self._level_chip_buttons[level] = btn
         self.detail_chip = QPushButton("DETAIL\nSIMPLE")
         self.detail_chip.setObjectName("ChipLevel")
         self.detail_chip.setMinimumWidth(104)
@@ -2309,6 +2324,28 @@ class TennisDashboard(QMainWindow):
         box._value_label = v  # type: ignore[attr-defined]
         return box
 
+    def _toggle_level_chip_popup(self):
+        if self.level_chip_popup.isVisible():
+            self.level_chip_popup.hide()
+            return
+        chip_width = self.level_chip.width()
+        chip_height = self.level_chip.height()
+        popup_width = max(170, chip_width + 12)
+        self.level_chip_popup.setFixedWidth(popup_width)
+        for btn in self._level_chip_buttons.values():
+            btn.setMinimumWidth(popup_width - 16)
+            btn.setMinimumHeight(chip_height)
+        pos = self.level_chip.mapToGlobal(self.level_chip.rect().bottomLeft())
+        self.level_chip_popup.move(pos.x(), pos.y() + 6)
+        self.level_chip_popup.adjustSize()
+        self.level_chip_popup.show()
+
+    def _on_level_chip_selected(self, level: str):
+        self.level_chip_popup.hide()
+        if level == self._competition_level:
+            return
+        self._set_competition_level(level)
+
     def _toggle_detail_mode(self):
         self._ui_simple_mode = not self._ui_simple_mode
         self._apply_detail_mode()
@@ -2539,13 +2576,18 @@ class TennisDashboard(QMainWindow):
     def _refresh_competition_toggle(self):
         if not hasattr(self, "level_chip"):
             return
+        idx = -1
+        for i, key in enumerate(self._competition_profiles.keys()):
+            if key == self._competition_level:
+                idx = i
+                break
         short = {
             "Newbie": "NEWBIE",
             "Competitive": "COMPETITIVE",
             "Professional": "PRO",
         }.get(self._competition_level, self._competition_level.upper())
-        self.level_chip.setText(f"LEVEL\n{short}")
-        palette = {
+        self.level_chip.setText(f"LEVEL\n{short} ▾")
+        level_palettes = {
             "Newbie": {
                 "border": "#2b5f8f",
                 "bg": "#0a2943",
@@ -2564,7 +2606,8 @@ class TennisDashboard(QMainWindow):
                 "hover": "#083629",
                 "fg": "#8ff0af",
             },
-        }.get(
+        }
+        palette = level_palettes.get(
             self._competition_level,
             {
                 "border": "#2a6c54",
@@ -2589,17 +2632,72 @@ class TennisDashboard(QMainWindow):
             }}
             """
         )
-
-    def _cycle_competition_level(self):
-        levels = list(self._competition_profiles.keys())
-        if not levels:
-            return
-        try:
-            idx = levels.index(self._competition_level)
-        except ValueError:
-            idx = 0
-        next_level = levels[(idx + 1) % len(levels)]
-        self._set_competition_level(next_level)
+        self.level_chip_popup.setStyleSheet(
+            """
+            QFrame#LevelPopup {
+                background: #071528;
+                border: 1px solid #1d4369;
+                border-radius: 8px;
+            }
+            QPushButton#LevelOptionChip {
+                border: 1px solid #2a5278;
+                border-radius: 7px;
+                padding: 6px 10px;
+                font-size: 10px;
+                font-weight: 800;
+                color: #cfe6ff;
+                background: #0d2d50;
+                text-align: center;
+            }
+            QPushButton#LevelOptionChip:hover {
+                background: #17406c;
+                border-color: #3a6b97;
+            }
+            """
+        )
+        for level, btn in self._level_chip_buttons.items():
+            option_palette = level_palettes.get(level, palette)
+            is_active = level == self._competition_level
+            border = option_palette["border"]
+            bg = option_palette["bg"]
+            fg = option_palette["fg"]
+            hover = option_palette["hover"]
+            if level == self._competition_level:
+                btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        border: 2px solid {border};
+                        border-radius: 7px;
+                        padding: 6px 10px;
+                        font-size: 10px;
+                        font-weight: 900;
+                        color: {fg};
+                        background: {bg};
+                        text-align: center;
+                    }}
+                    QPushButton:hover {{
+                        background: {hover};
+                    }}
+                    """
+                )
+            else:
+                btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        border: 1px solid {border};
+                        border-radius: 7px;
+                        padding: 6px 10px;
+                        font-size: 10px;
+                        font-weight: 800;
+                        color: {fg};
+                        background: {bg};
+                        text-align: center;
+                    }}
+                    QPushButton:hover {{
+                        background: {hover};
+                    }}
+                    """
+                )
 
     def _on_profile_selected(self, name: str):
         if not name:
