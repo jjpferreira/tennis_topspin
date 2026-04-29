@@ -241,6 +241,15 @@ class Shot:
     impact_x: int = 0
     impact_y: int = 0
     impact_redness: int = 0
+    spin_type: str = "Flat"
+    shot_type: str = "Forehand"
+    face_tilt_deg: float = 0.0
+    brush_angle_deg: float = 0.0
+    net_clearance_m: float = 0.0
+    bounce_kick_m: float = 0.0
+    coaching_cue: str = ""
+    benchmark_score: int = 0
+    target_zone_hit: bool = False
 
 
 @dataclass
@@ -1970,8 +1979,17 @@ class TennisDashboard(QMainWindow):
         }
         self._fw_gate_distance_cm = 3.0
         self._fw_rpm_pulses_per_rev = 1
+        self._court_surface = "Hard"
+        self._drill_mode = "Off"
+        self._drill_goal = 20
+        self._drill_hits = 0
+        self._drill_attempts = 0
+        self._drill_goal_announced = False
+        self._ui_simple_mode = True
 
         self._build_ui()
+        self._update_drill_status()
+        self._apply_detail_mode()
         self._apply_style()
         self._load_competition_profiles_config()
         self._load_profiles()
@@ -2033,6 +2051,12 @@ class TennisDashboard(QMainWindow):
         self.level_chip.clicked.connect(self._cycle_competition_level)
         self.level_chip.setToolTip("Click to change level")
         hh.addWidget(self.level_chip)
+        self.detail_chip = QPushButton("DETAIL\nSIMPLE")
+        self.detail_chip.setObjectName("ChipLevel")
+        self.detail_chip.setMinimumWidth(104)
+        self.detail_chip.clicked.connect(self._toggle_detail_mode)
+        self.detail_chip.setToolTip("Toggle Simple/Advanced details")
+        hh.addWidget(self.detail_chip)
 
         self.mode_chip = QLabel("MODE\nSIMULATION")
         self.mode_chip.setObjectName("ChipOk")
@@ -2081,6 +2105,18 @@ class TennisDashboard(QMainWindow):
         self.left_current.layout().addWidget(self.lbl_impact_red)
         self.left_current.layout().addWidget(self.lbl_live_rpm)
         self.left_current.layout().addWidget(self.lbl_gate_speed)
+        self.lbl_spin_type = QLabel("Spin Type          Flat")
+        self.lbl_shot_type = QLabel("Shot Type          Forehand")
+        self.lbl_coaching = QLabel("Coaching Cue       Build brush-up path")
+        self.lbl_benchmark = QLabel("Benchmark Score    0 / 100")
+        self.lbl_spin_type.setObjectName("SmallMuted")
+        self.lbl_shot_type.setObjectName("SmallMuted")
+        self.lbl_coaching.setObjectName("SmallMuted")
+        self.lbl_benchmark.setObjectName("SmallMuted")
+        self.left_current.layout().addWidget(self.lbl_spin_type)
+        self.left_current.layout().addWidget(self.lbl_shot_type)
+        self.left_current.layout().addWidget(self.lbl_coaching)
+        self.left_current.layout().addWidget(self.lbl_benchmark)
         left_col.addWidget(self.left_current)
 
         self.left_pred = self._panel("PREDICTED LANDING")
@@ -2088,6 +2124,21 @@ class TennisDashboard(QMainWindow):
         self.lbl_land_y = QLabel("Y (Down Court)    0.00 m")
         self.left_pred.layout().addWidget(self.lbl_land_x)
         self.left_pred.layout().addWidget(self.lbl_land_y)
+        self.lbl_face_tilt = QLabel("Face Tilt @ Impact  0.0°")
+        self.lbl_brush = QLabel("Brush Angle         0.0°")
+        self.lbl_net_clearance = QLabel("Net Clearance       0.00 m")
+        self.lbl_bounce = QLabel("Post-bounce Kick    0.00 m")
+        self.lbl_target_zone = QLabel("Target Zone         MISS")
+        self.lbl_face_tilt.setObjectName("SmallMuted")
+        self.lbl_brush.setObjectName("SmallMuted")
+        self.lbl_net_clearance.setObjectName("SmallMuted")
+        self.lbl_bounce.setObjectName("SmallMuted")
+        self.lbl_target_zone.setObjectName("SmallMuted")
+        self.left_pred.layout().addWidget(self.lbl_face_tilt)
+        self.left_pred.layout().addWidget(self.lbl_brush)
+        self.left_pred.layout().addWidget(self.lbl_net_clearance)
+        self.left_pred.layout().addWidget(self.lbl_bounce)
+        self.left_pred.layout().addWidget(self.lbl_target_zone)
         left_col.addWidget(self.left_pred)
 
         self.left_stats = self._panel("SHOT STATISTICS")
@@ -2160,9 +2211,9 @@ class TennisDashboard(QMainWindow):
         lower.addWidget(self.impact_panel, 1)
 
         self.history_panel = self._panel("SHOT HISTORY")
-        self.history_table = QTableWidget(0, 7)
+        self.history_table = QTableWidget(0, 10)
         self.history_table.setHorizontalHeaderLabels(
-            ["#", "TIME", "SPEED (mph)", "ARM ANGLE", "LANDING (X,Y)", "SPIN", "IMPACT"]
+            ["#", "TIME", "SPEED", "SPIN", "SPIN TYPE", "SHOT", "LANDING", "NET CLR", "TARGET", "COACHING"]
         )
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setAlternatingRowColors(True)
@@ -2174,6 +2225,12 @@ class TennisDashboard(QMainWindow):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(10)
+        self.surface_combo = QComboBox()
+        self.surface_combo.addItems(["Surface: Hard", "Surface: Clay", "Surface: Grass"])
+        self.drill_combo = QComboBox()
+        self.drill_combo.addItems(["Drill: Off", "Drill: 20 Topspin Cross-Court"])
+        self.lbl_drill_status = QLabel("Drill Progress: 0/0")
+        self.lbl_drill_status.setObjectName("SmallMuted")
         self.btn_connect = QPushButton("CONNECT SENSOR")
         self.btn_connect.setObjectName("SecondaryBtn")
         self.btn_new = QPushButton("NEW RANDOM SHOT")
@@ -2186,6 +2243,9 @@ class TennisDashboard(QMainWindow):
         self.btn_reset_session.setObjectName("SecondaryBtn")
         self.btn_disconnect = QPushButton("DISCONNECT")
         self.btn_disconnect.setObjectName("SecondaryBtn")
+        bottom.addWidget(self.surface_combo)
+        bottom.addWidget(self.drill_combo)
+        bottom.addWidget(self.lbl_drill_status)
         for btn in (
             self.btn_connect,
             self.btn_new,
@@ -2209,6 +2269,8 @@ class TennisDashboard(QMainWindow):
         self.btn_reset_session.clicked.connect(self._reset_session)
         self.btn_clear.clicked.connect(self._clear_shots)
         self.btn_export.clicked.connect(self._export_csv)
+        self.surface_combo.currentTextChanged.connect(self._on_surface_changed)
+        self.drill_combo.currentTextChanged.connect(self._on_drill_changed)
 
     def _auto_start_discovery(self):
         if self._thread and self._thread.isRunning():
@@ -2246,6 +2308,113 @@ class TennisDashboard(QMainWindow):
         lay.addWidget(v)
         box._value_label = v  # type: ignore[attr-defined]
         return box
+
+    def _toggle_detail_mode(self):
+        self._ui_simple_mode = not self._ui_simple_mode
+        self._apply_detail_mode()
+
+    def _apply_detail_mode(self):
+        self.detail_chip.setText("DETAIL\nSIMPLE" if self._ui_simple_mode else "DETAIL\nADVANCED")
+
+        advanced_widgets = [
+            self.lbl_live_rpm,
+            self.lbl_gate_speed,
+            self.lbl_spin_type,
+            self.lbl_shot_type,
+            self.lbl_coaching,
+            self.lbl_benchmark,
+            self.lbl_face_tilt,
+            self.lbl_brush,
+            self.lbl_net_clearance,
+            self.lbl_bounce,
+            self.lbl_target_zone,
+            self.surface_combo,
+            self.drill_combo,
+            self.lbl_drill_status,
+        ]
+        for widget in advanced_widgets:
+            widget.setVisible(not self._ui_simple_mode)
+
+        # Keep history focused in simple mode.
+        self.history_table.setColumnHidden(4, self._ui_simple_mode)  # spin type
+        self.history_table.setColumnHidden(5, self._ui_simple_mode)  # shot type
+        self.history_table.setColumnHidden(7, self._ui_simple_mode)  # net clearance
+        self.history_table.setColumnHidden(8, self._ui_simple_mode)  # target
+        self.history_table.setColumnHidden(9, self._ui_simple_mode)  # coaching
+
+    def _on_surface_changed(self, text: str):
+        self._court_surface = text.replace("Surface:", "").strip()
+        self.statusBar().showMessage(f"Court surface set to {self._court_surface}.")
+
+    def _on_drill_changed(self, text: str):
+        self._drill_mode = text.replace("Drill:", "").strip()
+        self._drill_hits = 0
+        self._drill_attempts = 0
+        self._drill_goal_announced = False
+        self._update_drill_status()
+
+    def _update_drill_status(self):
+        if self._drill_mode == "Off":
+            self.lbl_drill_status.setText("Drill Progress: Off")
+            return
+        self.lbl_drill_status.setText(f"Drill Progress: {self._drill_hits}/{self._drill_goal} ({self._drill_attempts} shots)")
+
+    @staticmethod
+    def _classify_spin_type(spin: int, impact_y: int) -> str:
+        if spin >= 1700 and impact_y > -20:
+            return "Topspin"
+        if spin <= 900 or impact_y < -35:
+            return "Slice"
+        return "Flat"
+
+    @staticmethod
+    def _infer_shot_type(speed: float, arm_angle: float) -> str:
+        if speed >= 85.0 and abs(arm_angle) <= 22.0:
+            return "Serve"
+        return "Forehand" if arm_angle >= 0.0 else "Backhand"
+
+    @staticmethod
+    def _estimate_face_tilt(arm_angle: float, impact_y: int) -> float:
+        return max(-25.0, min(25.0, arm_angle * 0.12 - impact_y * 0.20))
+
+    @staticmethod
+    def _estimate_brush_angle(spin: int, impact_y: int) -> float:
+        return max(4.0, min(36.0, abs(impact_y) * 0.22 + max(0, spin - 900) / 130.0))
+
+    def _estimate_net_clearance(self, speed: float, spin: int, arm_angle: float) -> float:
+        clearance = 0.35 + (spin / 3000.0) * 0.55 - (speed / 120.0) * 0.18 + (arm_angle / 90.0) * 0.22
+        return max(0.05, min(1.50, clearance))
+
+    def _estimate_bounce_kick(self, speed: float, spin: int) -> float:
+        surface_mul = {"Hard": 1.0, "Clay": 1.18, "Grass": 0.82}.get(self._court_surface, 1.0)
+        kick = (0.10 + (spin / 3000.0) * 1.20 + max(0.0, speed - 40.0) * 0.003) * surface_mul
+        return max(0.05, min(2.50, kick))
+
+    def _is_target_zone_hit(self, shot_type: str, arm_angle: float, landing_x: float, landing_y: float, spin_type: str) -> bool:
+        if shot_type == "Serve":
+            return -1.4 <= landing_x <= 1.4 and 7.1 <= landing_y <= 9.8
+        cross_ok = (arm_angle >= 0.0 and landing_x <= -0.4) or (arm_angle < 0.0 and landing_x >= 0.4)
+        return cross_ok and 6.5 <= landing_y <= 10.2 and spin_type == "Topspin"
+
+    @staticmethod
+    def _coaching_cue(spin_type: str, face_tilt_deg: float, brush_angle_deg: float) -> str:
+        if spin_type != "Topspin":
+            return "Too flat: brush up more through contact."
+        if face_tilt_deg < 8.0:
+            return "Face too open: close racket face slightly."
+        if brush_angle_deg < 16.0:
+            return "Good intent, add more low-to-high swing path."
+        if face_tilt_deg > 17.0:
+            return "Face too closed: recover a few degrees."
+        return "Great topspin mechanics: keep same tempo."
+
+    @staticmethod
+    def _benchmark_score(speed: float, spin: int, face_tilt_deg: float, brush_angle_deg: float) -> int:
+        speed_score = max(0.0, 100.0 - abs(speed - 66.0) * 2.4)
+        spin_score = max(0.0, 100.0 - abs(spin - 2200) / 22.0)
+        face_score = max(0.0, 100.0 - abs(face_tilt_deg - 12.0) * 7.0)
+        brush_score = max(0.0, 100.0 - abs(brush_angle_deg - 22.0) * 4.0)
+        return int(max(0.0, min(100.0, speed_score * 0.28 + spin_score * 0.36 + face_score * 0.18 + brush_score * 0.18)))
 
     def _load_profiles(self):
         if not self._profile_store_path.exists():
@@ -2857,10 +3026,15 @@ class TennisDashboard(QMainWindow):
         self.shots.clear()
         self.telemetry.count = 0
         self.telemetry.rate_x10 = 0
+        self.telemetry.rpm_x10 = 0
         self.telemetry.state = 0
         self.play_queue = 0
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._drill_hits = 0
+        self._drill_attempts = 0
+        self._drill_goal_announced = False
+        self._update_drill_status()
         self._session_started_at = datetime.now().isoformat(timespec="seconds")
         self._active_session_saved = False
         self._refresh_ui(force=True)
@@ -2898,6 +3072,15 @@ class TennisDashboard(QMainWindow):
                 "impact_x_pct",
                 "impact_y_pct",
                 "impact_redness_pct",
+                "spin_type",
+                "shot_type",
+                "face_tilt_deg",
+                "brush_angle_deg",
+                "net_clearance_m",
+                "bounce_kick_m",
+                "coaching_cue",
+                "benchmark_score",
+                "target_zone_hit",
             ])
             for s in self.shots:
                 w.writerow([
@@ -2911,6 +3094,15 @@ class TennisDashboard(QMainWindow):
                     s.impact_x,
                     s.impact_y,
                     s.impact_redness,
+                    s.spin_type,
+                    s.shot_type,
+                    f"{s.face_tilt_deg:.2f}",
+                    f"{s.brush_angle_deg:.2f}",
+                    f"{s.net_clearance_m:.2f}",
+                    f"{s.bounce_kick_m:.2f}",
+                    s.coaching_cue,
+                    s.benchmark_score,
+                    int(s.target_zone_hit),
                 ])
         self.statusBar().showMessage(f"Exported {len(self.shots)} shots to {path}")
 
@@ -2938,6 +3130,16 @@ class TennisDashboard(QMainWindow):
         impact_y: int = 0,
         impact_redness: int = 0,
     ):
+        spin_type = self._classify_spin_type(spin, impact_y)
+        shot_type = self._infer_shot_type(speed, arm_angle)
+        face_tilt_deg = self._estimate_face_tilt(arm_angle, impact_y)
+        brush_angle_deg = self._estimate_brush_angle(spin, impact_y)
+        net_clearance_m = self._estimate_net_clearance(speed, spin, arm_angle)
+        bounce_kick_m = self._estimate_bounce_kick(speed, spin)
+        target_zone_hit = self._is_target_zone_hit(shot_type, arm_angle, landing_x, landing_y, spin_type)
+        coaching_cue = self._coaching_cue(spin_type, face_tilt_deg, brush_angle_deg)
+        benchmark_score = self._benchmark_score(speed, spin, face_tilt_deg, brush_angle_deg)
+
         shot = Shot(
             idx=(self.shots[-1].idx + 1) if self.shots else 1,
             timestamp=datetime.now().strftime("%H:%M:%S"),
@@ -2949,8 +3151,25 @@ class TennisDashboard(QMainWindow):
             impact_x=impact_x,
             impact_y=impact_y,
             impact_redness=impact_redness,
+            spin_type=spin_type,
+            shot_type=shot_type,
+            face_tilt_deg=face_tilt_deg,
+            brush_angle_deg=brush_angle_deg,
+            net_clearance_m=net_clearance_m,
+            bounce_kick_m=bounce_kick_m,
+            coaching_cue=coaching_cue,
+            benchmark_score=benchmark_score,
+            target_zone_hit=target_zone_hit,
         )
         self.shots.append(shot)
+        if self._drill_mode != "Off":
+            self._drill_attempts += 1
+            if self._drill_mode == "20 Topspin Cross-Court" and spin_type == "Topspin" and target_zone_hit:
+                self._drill_hits += 1
+            self._update_drill_status()
+            if self._drill_hits >= self._drill_goal and not self._drill_goal_announced:
+                self._drill_goal_announced = True
+                self.statusBar().showMessage("Drill complete: 20 topspin cross-court targets achieved.")
         if len(self.shots) > 300:
             self.shots = self.shots[-300:]
         self._active_session_saved = False
@@ -3191,6 +3410,15 @@ class TennisDashboard(QMainWindow):
             self.lbl_impact_xy.setText(f"Impact Offset      {latest.impact_x:+d}, {latest.impact_y:+d}")
             self.lbl_impact_red.setText(f"Impact Redness     {latest.impact_redness:d}%")
             self.lbl_live_rpm.setText(f"Live RPM           {self.telemetry.rpm_x10 / 10.0:.1f}")
+            self.lbl_spin_type.setText(f"Spin Type          {latest.spin_type}")
+            self.lbl_shot_type.setText(f"Shot Type          {latest.shot_type}")
+            self.lbl_coaching.setText(f"Coaching Cue       {latest.coaching_cue}")
+            self.lbl_benchmark.setText(f"Benchmark Score    {latest.benchmark_score:d} / 100")
+            self.lbl_face_tilt.setText(f"Face Tilt @ Impact  {latest.face_tilt_deg:.1f}°")
+            self.lbl_brush.setText(f"Brush Angle         {latest.brush_angle_deg:.1f}°")
+            self.lbl_net_clearance.setText(f"Net Clearance       {latest.net_clearance_m:.2f} m")
+            self.lbl_bounce.setText(f"Post-bounce Kick    {latest.bounce_kick_m:.2f} m ({self._court_surface})")
+            self.lbl_target_zone.setText(f"Target Zone         {'HIT' if latest.target_zone_hit else 'MISS'}")
             gate_speed_text = "--.- mph"
             if self.telemetry.gate_speed_mph > 0.0:
                 gate_speed_text = f"{self.telemetry.gate_speed_mph:.1f} mph"
@@ -3200,6 +3428,15 @@ class TennisDashboard(QMainWindow):
             self.lbl_impact_xy.setText("Impact Offset      +0, +0")
             self.lbl_impact_red.setText("Impact Redness     0%")
             self.lbl_live_rpm.setText(f"Live RPM           {self.telemetry.rpm_x10 / 10.0:.1f}")
+            self.lbl_spin_type.setText("Spin Type          Flat")
+            self.lbl_shot_type.setText("Shot Type          Forehand")
+            self.lbl_coaching.setText("Coaching Cue       Build brush-up path")
+            self.lbl_benchmark.setText("Benchmark Score    0 / 100")
+            self.lbl_face_tilt.setText("Face Tilt @ Impact  0.0°")
+            self.lbl_brush.setText("Brush Angle         0.0°")
+            self.lbl_net_clearance.setText("Net Clearance       0.00 m")
+            self.lbl_bounce.setText(f"Post-bounce Kick    0.00 m ({self._court_surface})")
+            self.lbl_target_zone.setText("Target Zone         MISS")
             self.lbl_gate_speed.setText("Gate Speed         --.- mph")
             self.impact_widget.set_impact(0, 0, 0)
 
@@ -3238,10 +3475,13 @@ class TennisDashboard(QMainWindow):
                 str(s.idx),
                 s.timestamp,
                 f"{s.speed:.1f}",
-                f"{s.arm_angle:.1f}°",
-                f"{s.landing_x:.2f}, {s.landing_y:.2f}",
                 f"{s.spin:d}",
-                f"{s.impact_x:+d},{s.impact_y:+d} {s.impact_redness:d}%",
+                s.spin_type,
+                s.shot_type,
+                f"{s.landing_x:.2f}, {s.landing_y:.2f}",
+                f"{s.net_clearance_m:.2f} m",
+                "HIT" if s.target_zone_hit else "MISS",
+                s.coaching_cue,
             ]
             for c, txt in enumerate(values):
                 item = QTableWidgetItem(txt)

@@ -3,16 +3,6 @@
     "Student 1": [
       {
         "student": "Student 1",
-        "started_at": "2026-04-28T18:49:46",
-        "shot_count": 252,
-        "avg_speed": 52.91,
-        "avg_spin": 1221.63,
-        "consistency": 63,
-        "fast_pct": 14.68,
-        "avg_impact_redness": 33.13
-      },
-      {
-        "student": "Student 1",
         "started_at": "2026-04-28T18:55:30",
         "shot_count": 116,
         "avg_speed": 56.17,
@@ -392,6 +382,61 @@
         "consistency": 71,
         "fast_pct": 17.65,
         "avg_impact_redness": 52.69
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-29T07:30:43",
+        "shot_count": 279,
+        "avg_speed": 61.04,
+        "avg_spin": 1718.72,
+        "consistency": 72,
+        "fast_pct": 20.43,
+        "avg_impact_redness": 51.93
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-29T07:38:54",
+        "shot_count": 70,
+        "avg_speed": 60.84,
+        "avg_spin": 1735.9,
+        "consistency": 73,
+        "fast_pct": 21.43,
+        "avg_impact_redness": 51.36
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Competitive",
+        "started_at": "2026-04-29T07:40:12",
+        "shot_count": 96,
+        "avg_speed": 61.08,
+        "avg_spin": 1689.47,
+        "consistency": 71,
+        "fast_pct": 20.83,
+        "avg_impact_redness": 52.61
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-29T07:42:49",
+        "shot_count": 152,
+        "avg_speed": 59.29,
+        "avg_spin": 1724.2,
+        "consistency": 71,
+        "fast_pct": 19.74,
+        "avg_impact_redness": 50.41
+      },
+      {
+        "student": "Student 1",
+        "competition_level": "Newbie",
+        "started_at": "2026-04-29T07:45:36",
+        "shot_count": 52,
+        "avg_speed": 39.07,
+        "avg_spin": 847.15,
+        "consistency": 66,
+        "fast_pct": 0.0,
+        "avg_impact_redness": 30.08
       }
     ],
     "John Sanchez": [
@@ -409,7 +454,7 @@
     ]
   },
   "competition_levels": {
-    "Student 1": "Competitive",
+    "Student 1": "Newbie",
     "John Sanchez": "Competitive"
   }
 }

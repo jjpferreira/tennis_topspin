@@ -459,6 +459,80 @@
     },
     {
       "id": "item-15",
+      "featureId": "FEAT-019",
+      "title": "FEAT-019: Topspin coaching intelligence — spin type, cues, and benchmark score",
+      "status": "IN-PROGRESS",
+      "priority": "HIGH",
+      "description": "Add live topspin-specific coaching outputs to the desktop app: classify shot spin type (topspin/flat/slice), compute racket-face proxy and swing-path brush proxy from available impact/angle signals, produce real-time coaching cues (e.g., \"too flat\", \"open face\", \"good brush\"), and surface a benchmark comparison score against a configurable \"pro topspin\" profile.",
+      "fullBody": "### [IN-PROGRESS] [HIGH] FEAT-019: Topspin coaching intelligence — spin type, cues, and benchmark score\n\n**Feature ID:** `FEAT-019` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  \n**Complexity:** Medium | **Business Value:** 5\n\n**Description:** Add live topspin-specific coaching outputs to the desktop app: classify shot spin type (topspin/flat/slice), compute racket-face proxy and swing-path brush proxy from available impact/angle signals, produce real-time coaching cues (e.g., \"too flat\", \"open face\", \"good brush\"), and surface a benchmark comparison score against a configurable \"pro topspin\" profile.\n\n**Related:** FEAT-004 (shot estimation), FEAT-005 (visual feedback), FEAT-008 (desktop processing), FEAT-010 (calibration), FEAT-018 (player progression context).\n\n---",
+      "businessValue": "",
+      "complexity": "MEDIUM",
+      "complexityScore": 2,
+      "businessValueScore": 5,
+      "relatedFeatures": [
+        {
+          "featureId": "FEAT-004",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-005",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-008",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-010",
+          "relation": "calibration"
+        },
+        {
+          "featureId": "FEAT-018",
+          "relation": "related"
+        }
+      ],
+      "lastUpdatedDate": "2026-04-29",
+      "addedDate": "2026-04-29"
+    },
+    {
+      "id": "item-16",
+      "featureId": "FEAT-020",
+      "title": "FEAT-020: Shot intent and physics context — target zones, net clearance, bounce, and drill mode",
+      "status": "IN-PROGRESS",
+      "priority": "HIGH",
+      "description": "Extend the simulator with practical coaching context: shot type tagging (forehand/backhand/serve), target-zone overlays, estimated net clearance, estimated post-bounce behavior, court-surface selector (hard/clay/grass), and focused drill mode feedback for repetition-based topspin practice.",
+      "fullBody": "### [IN-PROGRESS] [HIGH] FEAT-020: Shot intent and physics context — target zones, net clearance, bounce, and drill mode\n\n**Feature ID:** `FEAT-020` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  \n**Complexity:** High | **Business Value:** 5\n\n**Description:** Extend the simulator with practical coaching context: shot type tagging (forehand/backhand/serve), target-zone overlays, estimated net clearance, estimated post-bounce behavior, court-surface selector (hard/clay/grass), and focused drill mode feedback for repetition-based topspin practice.\n\n**Related:** FEAT-005 (court visualization), FEAT-008 (desktop app), FEAT-009 (mode behavior), FEAT-012 (session analytics), FEAT-018 (student comparison).\n\n---",
+      "businessValue": "",
+      "complexity": "HIGH",
+      "complexityScore": 3,
+      "businessValueScore": 5,
+      "relatedFeatures": [
+        {
+          "featureId": "FEAT-005",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-008",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-009",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-012",
+          "relation": "related"
+        },
+        {
+          "featureId": "FEAT-018",
+          "relation": "related"
+        }
+      ],
+      "lastUpdatedDate": "2026-04-29",
+      "addedDate": "2026-04-29"
+    },
+    {
+      "id": "item-17",
       "featureId": "FEAT-013",
       "title": "FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility",
       "status": "PLANNED",
@@ -495,7 +569,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-16",
+      "id": "item-18",
       "featureId": "FEAT-014",
       "title": "FEAT-014: Optional transport — BLE streaming to desktop or mobile bridge",
       "status": "IDEA",
@@ -524,7 +598,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-17",
+      "id": "item-19",
       "featureId": "FEAT-015",
       "title": "FEAT-015: Future mobile layer — iOS (or similar) consuming telemetry and court UI",
       "status": "IDEA",
@@ -553,7 +627,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-18",
+      "id": "item-20",
       "featureId": "FEAT-016",
       "title": "FEAT-016: MVP vertical — Hall + IMU, structured serial, live court, shot plotting, metrics",
       "status": "PLANNED",
@@ -598,7 +672,7 @@
       "addedDate": "2026-04-23"
     },
     {
-      "id": "item-19",
+      "id": "item-21",
       "featureId": "FEAT-017",
       "title": "FEAT-017: ADXL335 impact telemetry and simulator impact visualization",
       "status": "COMPLETED",

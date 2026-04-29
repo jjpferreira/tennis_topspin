@@ -183,6 +183,28 @@ ESP32:  Hall → RPM / ω          Arm sensor → angle / arm velocity
 
 ---
 
+### [IN-PROGRESS] [HIGH] FEAT-019: Topspin coaching intelligence — spin type, cues, and benchmark score
+
+**Feature ID:** `FEAT-019` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  
+**Complexity:** Medium | **Business Value:** 5
+
+**Description:** Add live topspin-specific coaching outputs to the desktop app: classify shot spin type (topspin/flat/slice), compute racket-face proxy and swing-path brush proxy from available impact/angle signals, produce real-time coaching cues (e.g., "too flat", "open face", "good brush"), and surface a benchmark comparison score against a configurable "pro topspin" profile.
+
+**Related:** FEAT-004 (shot estimation), FEAT-005 (visual feedback), FEAT-008 (desktop processing), FEAT-010 (calibration), FEAT-018 (player progression context).
+
+---
+
+### [IN-PROGRESS] [HIGH] FEAT-020: Shot intent and physics context — target zones, net clearance, bounce, and drill mode
+
+**Feature ID:** `FEAT-020` | **Status:** `[IN-PROGRESS]` | **Priority:** `[HIGH]` | **Added:** 2026-04-29 | **Last Updated:** 2026-04-29  
+**Complexity:** High | **Business Value:** 5
+
+**Description:** Extend the simulator with practical coaching context: shot type tagging (forehand/backhand/serve), target-zone overlays, estimated net clearance, estimated post-bounce behavior, court-surface selector (hard/clay/grass), and focused drill mode feedback for repetition-based topspin practice.
+
+**Related:** FEAT-005 (court visualization), FEAT-008 (desktop app), FEAT-009 (mode behavior), FEAT-012 (session analytics), FEAT-018 (student comparison).
+
+---
+
 ### [PLANNED] [MEDIUM] FEAT-013: Non-functional — bench-real-time performance, modularity, extensibility
 
 **Feature ID:** `FEAT-013` | **Status:** `[PLANNED]` | **Priority:** `[MEDIUM]` | **Added:** 2026-04-23 | **Last Updated:** 2026-04-23  
