@@ -8,6 +8,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "../config.h"
+#include "../firmware_version.h"
 #include "../logger.h"
 #include "./ble_constants.h"
 
@@ -92,6 +93,7 @@ private:
     BLECharacteristic* _impactChar;
     BLECharacteristic* _gateSpeedChar;
     BLECharacteristic* _healthChar;
+    BLECharacteristic* _fwVersionChar;
     BLECharacteristic* _commandChar;
 
     SemaphoreHandle_t _cmdMutex;

@@ -59,6 +59,7 @@ COMMAND_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a4"
 IMPACT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a5"
 GATE_SPEED_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a6"
 HEALTH_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a8"
+FW_VERSION_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a9"
 NAME_PREFIX = "TENNIS_KY003"
 BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
@@ -1969,6 +1970,7 @@ class TennisBleWorker(QObject):
     impact = pyqtSignal(int, int, int, int, int, int, int, int, int)
     gate_speed = pyqtSignal(int, int, int)
     health = pyqtSignal(dict)
+    firmware_info = pyqtSignal(str)
     command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
@@ -2140,15 +2142,72 @@ class TennisBleWorker(QObject):
                         self.status.emit("Gate speed characteristic unavailable on this firmware.")
                 else:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
+                # Print the discovered GATT table once so the operator can see
+                # exactly which characteristics the firmware exposes. This is
+                # invaluable for diagnosing 'no frames' issues where Bleak on
+                # macOS silently accepts subscriptions to non-existent UUIDs.
+                discovered = sorted(self._available_char_uuids)
+                print(
+                    f"[BLE-DIAG] GATT characteristics discovered ({len(discovered)}):",
+                    flush=True,
+                )
+                for uuid in discovered:
+                    tag = ""
+                    if uuid == SENSOR_STATE_UUID.lower():
+                        tag = " (state)"
+                    elif uuid == HIT_COUNT_UUID.lower():
+                        tag = " (count)"
+                    elif uuid == RATE_X10_UUID.lower():
+                        tag = " (rate)"
+                    elif uuid == RPM_X10_UUID.lower():
+                        tag = " (rpm)"
+                    elif uuid == IMPACT_UUID.lower():
+                        tag = " (impact)"
+                    elif uuid == GATE_SPEED_UUID.lower():
+                        tag = " (gate-speed)"
+                    elif uuid == HEALTH_UUID.lower():
+                        tag = " (HEALTH)"
+                    elif uuid == COMMAND_UUID.lower():
+                        tag = " (command)"
+                    print(f"[BLE-DIAG]   {uuid}{tag}", flush=True)
+                # Firmware build identifier — read once at connect. The value is
+                # set by the ESP32 at boot from FIRMWARE_INFO_STRING, which
+                # bakes in __DATE__/__TIME__ from the C preprocessor, so it
+                # must change on every fresh flash.
+                if FW_VERSION_UUID.lower() in self._available_char_uuids:
+                    try:
+                        fw_bytes = await self._client.read_gatt_char(FW_VERSION_UUID)
+                        fw_text = bytes(fw_bytes).decode("utf-8", errors="replace").strip()
+                        if fw_text:
+                            print(f"[BLE-DIAG] firmware reports: {fw_text}", flush=True)
+                            self.firmware_info.emit(fw_text)
+                            self.status.emit(f"Firmware: {fw_text}")
+                    except Exception as exc:
+                        print(f"[BLE-DIAG] read FW_VERSION_UUID failed: {exc}", flush=True)
+                else:
+                    print(
+                        "[BLE-DIAG] FW_VERSION_UUID not present in GATT — older firmware (re-flash to expose build stamp).",
+                        flush=True,
+                    )
+                    self.firmware_info.emit("legacy (no version characteristic)")
                 if HEALTH_UUID.lower() in self._available_char_uuids:
                     try:
                         await self._client.start_notify(HEALTH_UUID, self._on_health)
-                    except Exception:
+                        print("[BLE-DIAG] start_notify(HEALTH_UUID) OK", flush=True)
+                    except Exception as exc:
+                        print(
+                            f"[BLE-DIAG] start_notify(HEALTH_UUID) FAILED: {exc}",
+                            flush=True,
+                        )
                         self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 else:
                     # On macOS Bleak silently accepts non-existent UUIDs, so we
                     # MUST gate on the discovered service table or we will sit
                     # forever on "Listening for first health frame".
+                    print(
+                        "[BLE-DIAG] HEALTH_UUID not present in GATT table — older firmware.",
+                        flush=True,
+                    )
                     self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
@@ -2336,7 +2395,20 @@ class TennisBleWorker(QObject):
         #   uint32 gateAHits, uint32 gateASinceMs, uint8 gateAState,
         #   uint32 gateBHits, uint32 gateBSinceMs, uint8 gateBState,
         #   uint32 impactSinceMs, uint16 impactBaselineMg
-        if len(data) < struct.calcsize("<IIBIIBIIBIH"):
+        expected = struct.calcsize("<IIBIIBIIBIH")
+        # Log every health frame the very first time it arrives so we know
+        # the BLE notify path is healthy end-to-end. Subsequent frames are
+        # rate-limited via _diag.
+        if self._diag_counts.get("health", 0) == 0:
+            print(
+                f"[BLE-DIAG] FIRST health frame received len={len(data)} expected={expected}",
+                flush=True,
+            )
+        if len(data) < expected:
+            print(
+                f"[BLE-DIAG] health frame too short ({len(data)} < {expected}) — payload struct mismatch?",
+                flush=True,
+            )
             return
         unpacked = struct.unpack("<IIBIIBIIBIH", bytes(data[: struct.calcsize("<IIBIIBIIBIH")]))
         (
@@ -2411,6 +2483,8 @@ class TennisDashboard(QMainWindow):
         self._connect_popup_stage: QLabel | None = None
         self._connect_popup_detail: QLabel | None = None
         self._connect_popup_sensor: QLabel | None = None
+        self._connect_popup_firmware: QLabel | None = None
+        self._firmware_build: str = "—"
         self._connect_popup_btn: QPushButton | None = None
         self._connect_popup_steps: list[QLabel] = []
         self._connect_step_states = ["pending", "pending", "pending", "pending"]
@@ -2864,6 +2938,13 @@ class TennisDashboard(QMainWindow):
         self._connect_popup_sensor.setObjectName("SmallMuted")
         self._connect_popup_sensor.setWordWrap(True)
         lay.addWidget(self._connect_popup_sensor)
+        # Firmware build identifier reported by the ESP32. Updated in
+        # _on_firmware_info() once the device's FW_VERSION characteristic is
+        # read at connect time.
+        self._connect_popup_firmware = QLabel("Firmware: —")
+        self._connect_popup_firmware.setObjectName("SmallMuted")
+        self._connect_popup_firmware.setWordWrap(True)
+        lay.addWidget(self._connect_popup_firmware)
         steps_box = QFrame()
         steps_box.setObjectName("Panel")
         steps_lay = QVBoxLayout(steps_box)
@@ -4202,6 +4283,7 @@ class TennisDashboard(QMainWindow):
         self._worker.impact.connect(self._on_impact_packet)
         self._worker.gate_speed.connect(self._on_gate_speed_packet)
         self._worker.health.connect(self._on_sensor_health)
+        self._worker.firmware_info.connect(self._on_firmware_info)
         self._worker.command_rx.connect(self._on_command_rx)
         self._worker.status.connect(self._on_status)
         self._thread.start()
@@ -4339,6 +4421,9 @@ class TennisDashboard(QMainWindow):
             self._health_last_packet_t = None
             self._health_connect_t = None
             self._health_freshness_state = "idle"
+            self._firmware_build = "—"
+            if self._connect_popup_firmware is not None:
+                self._connect_popup_firmware.setText("Firmware: —")
             if self._health_popup is not None and self._health_popup.isVisible():
                 self._health_popup.hide()
             self._reset_link_badge()
@@ -4605,6 +4690,15 @@ class TennisDashboard(QMainWindow):
             row["glyph"].setText(glyph_for[status])
             row["glyph"].setStyleSheet(f"color: {color_for[status]};")
             row["detail"].setText(detail)
+
+    def _on_firmware_info(self, info: str):
+        """Receives the firmware build identifier read from the ESP32 at
+        connect time. Stored on `self._firmware_build` and surfaced in the
+        connection wizard so the operator can confirm a fresh flash without
+        opening a serial monitor."""
+        self._firmware_build = info or "—"
+        if self._connect_popup_firmware is not None:
+            self._connect_popup_firmware.setText(f"Firmware: {self._firmware_build}")
 
     def _on_sensor_health(self, payload: dict):
         self._latest_health = payload

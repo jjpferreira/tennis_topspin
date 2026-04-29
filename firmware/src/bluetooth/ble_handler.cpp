@@ -42,6 +42,7 @@ BLEHandler::BLEHandler()
       _impactChar(nullptr),
       _gateSpeedChar(nullptr),
       _healthChar(nullptr),
+      _fwVersionChar(nullptr),
       _commandChar(nullptr),
       _cmdMutex(xSemaphoreCreateMutex()),
       _deferredCommand("") {}
@@ -99,6 +100,15 @@ void BLEHandler::setupCharacteristics() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     _healthChar->addDescriptor(new BLE2902());
+
+    // Read-only firmware build identifier. The value is set ONCE at boot from
+    // FIRMWARE_INFO_STRING (semver + __DATE__ + __TIME__) so each rebuild
+    // produces a new payload — central can confirm flash freshness instantly.
+    _fwVersionChar = _service->createCharacteristic(
+        TENNIS_FW_VERSION_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    _fwVersionChar->setValue(FIRMWARE_INFO_STRING);
 
     _commandChar = _service->createCharacteristic(
         TENNIS_COMMAND_UUID,

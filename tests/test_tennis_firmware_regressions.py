@@ -33,6 +33,44 @@ def test_tennis_firmware_version_is_semver_and_exported_to_config():
     assert "#define APP_VERSION FIRMWARE_VERSION_STRING" in config_h
 
 
+def test_tennis_firmware_build_stamp_uses_compiler_macros():
+    """Each compile must produce a fresh FIRMWARE_BUILD_STAMP because we rely
+    on it (over BLE and on serial) to confirm a flash actually deployed new
+    code. The C preprocessor injects __DATE__ and __TIME__ at every build."""
+    version_h = read_text(VERSION_H)
+    assert "#define FIRMWARE_BUILD_STAMP __DATE__" in version_h
+    assert "__TIME__" in version_h
+    assert "#define FIRMWARE_INFO_STRING" in version_h
+    assert "FIRMWARE_VERSION_DISPLAY" in version_h
+    assert "FIRMWARE_BUILD_STAMP" in version_h
+
+
+def test_tennis_firmware_info_string_is_emitted_on_serial_at_boot_and_periodically():
+    sketch = read_text(SKETCH)
+    assert "FIRMWARE_INFO_STRING" in sketch, (
+        "firmware.ino must broadcast FIRMWARE_INFO_STRING so each flash is identifiable"
+    )
+    assert "[BOOT]" in sketch, "Boot banner must include the [BOOT] tag"
+    assert "publishFirmwareHeartbeat" in sketch, (
+        "Periodic [FW] heartbeat function must exist in firmware.ino"
+    )
+    assert "[FW]" in sketch, "Periodic firmware heartbeat must use [FW] tag"
+
+
+def test_tennis_firmware_version_is_published_over_ble():
+    """The firmware build identifier must be exposed as a read-only BLE
+    characteristic so the dashboard can confirm flash freshness without
+    requiring a serial monitor."""
+    ble_constants = read_text(BLE_CONSTANTS_H)
+    ble_handler_h = read_text(BLE_HANDLER_H)
+    ble_handler_cpp = read_text(BLE_HANDLER_CPP)
+    assert "#define TENNIS_FW_VERSION_UUID" in ble_constants
+    assert "_fwVersionChar" in ble_handler_h
+    assert "TENNIS_FW_VERSION_UUID" in ble_handler_cpp
+    assert "_fwVersionChar->setValue(FIRMWARE_INFO_STRING)" in ble_handler_cpp
+    assert "PROPERTY_READ" in ble_handler_cpp
+
+
 def test_tennis_ble_contract_has_service_and_expected_characteristics():
     ble_constants = read_text(BLE_CONSTANTS_H)
     ble_handler_h = read_text(BLE_HANDLER_H)
@@ -47,6 +85,7 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
         "TENNIS_IMPACT_UUID",
         "TENNIS_GATE_SPEED_UUID",
         "TENNIS_HEALTH_UUID",
+        "TENNIS_FW_VERSION_UUID",
         "TENNIS_COMMAND_UUID",
     ):
         assert f"#define {name}" in ble_constants

@@ -12,5 +12,10 @@
 #define TENNIS_GATE_SPEED_UUID   "7be5483e-36e1-4688-b7f5-ea07361b26a6" // packed gate-speed payload
 #define TENNIS_HEALTH_UUID       "7be5483e-36e1-4688-b7f5-ea07361b26a8" // packed sensor-health payload
 
+// UTF-8 firmware build identifier — populated at boot from FIRMWARE_INFO_STRING
+// (semver + __DATE__ + __TIME__). Read-only. Used by the dashboard to confirm
+// each flash deployed a fresh build, e.g. "tennis-fw v1.1.0 build Apr 29 2026 14:35:21".
+#define TENNIS_FW_VERSION_UUID   "7be5483e-36e1-4688-b7f5-ea07361b26a9"
+
 // Control characteristic (UTF-8 write commands)
 #define TENNIS_COMMAND_UUID      "7be5483e-36e1-4688-b7f5-ea07361b26a4"
