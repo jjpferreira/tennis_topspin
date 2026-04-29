@@ -87,7 +87,7 @@ def test_tennis_streaming_defaults_to_on_without_keepalive_gate():
     assert 'if (cmd == "STREAM:OFF")' in sketch
     assert 'if (cmd == "PING")' in sketch
     assert 'bleHandler.notifyCommandAck("PONG")' in sketch
-    assert "if (!bleHandler.isConnected()) {" in sketch
+    assert "const bool nowConnected = bleHandler.isConnected();" in sketch
     assert "if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {" in sketch
 
 

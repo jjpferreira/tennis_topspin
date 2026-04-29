@@ -297,6 +297,27 @@ static SensorPipelineResult runSensorPipeline(uint32_t nowMs, uint32_t nowUs) {
     updateGateSpeedState(nowUs, gateStartEdge, gateEndEdge);
     out.gateSpeedReady = g_gateSpeed.ready;
 
+    if (out.impactEdge) {
+        Logger::info(String("[HIT] main pin=") + KY003_PIN +
+                     " count=" + sensor.getHitCount());
+    }
+    if (gateStartEdge) {
+        Logger::info(String("[HIT] gateStart pin=") + KY003_GATE_START_PIN);
+    }
+    if (gateEndEdge) {
+        Logger::info(String("[HIT] gateEnd   pin=") + KY003_GATE_END_PIN);
+    }
+
+    static uint32_t lastDiagMs = 0;
+    if (nowMs - lastDiagMs >= 2000u) {
+        lastDiagMs = nowMs;
+        Logger::info(String("[DIAG] pins main(") + KY003_PIN + ")=" +
+                     digitalRead(KY003_PIN) + " gateA(" + KY003_GATE_START_PIN +
+                     ")=" + digitalRead(KY003_GATE_START_PIN) + " gateB(" +
+                     KY003_GATE_END_PIN + ")=" + digitalRead(KY003_GATE_END_PIN) +
+                     " count=" + sensor.getHitCount());
+    }
+
     impactSensor.update(nowMs);
     if (out.impactEdge) {
         impactSensor.captureImpact(nowMs);
@@ -314,11 +335,21 @@ static void processBleCommands(uint32_t nowMs) {
 }
 
 static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sensorResult) {
-    if (!bleHandler.isConnected()) {
-        g_streamEnabled = false;
+    static bool s_wasConnected = false;
+    const bool nowConnected = bleHandler.isConnected();
+    if (!nowConnected) {
+        s_wasConnected = false;
         g_streamTimeoutWarned = false;
         g_gateSpeed.ready = false;
         return;
+    }
+    if (!s_wasConnected) {
+        // New client connected — re-arm the stream to the firmware default so
+        // older Python builds that cannot send STREAM:ON/PING still get data.
+        s_wasConnected = true;
+        g_streamEnabled = (BLE_STREAM_DEFAULT_ENABLED != 0);
+        g_lastStreamKeepaliveMs = nowMs;
+        g_streamTimeoutWarned = false;
     }
 
     static uint32_t lastNotifyMs = 0;
