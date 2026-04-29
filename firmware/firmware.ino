@@ -407,8 +407,14 @@ void setup() {
 #endif
     bleHandler.begin();
     bleHandler.startAdvertising();
+    g_lastStreamKeepaliveMs = millis();
 
     Logger::info("BLE advertising started");
+#if BLE_STREAM_DEFAULT_ENABLED
+    Logger::info("Live stream default: ENABLED");
+#else
+    Logger::info("Live stream default: DISABLED");
+#endif
 }
 
 void loop() {
