@@ -58,6 +58,7 @@ RPM_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a7"
 COMMAND_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a4"
 IMPACT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a5"
 GATE_SPEED_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a6"
+HEALTH_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a8"
 NAME_PREFIX = "TENNIS_KY003"
 BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
@@ -1967,6 +1968,7 @@ class TennisBleWorker(QObject):
     telemetry = pyqtSignal(int, int, int, int)
     impact = pyqtSignal(int, int, int, int, int, int, int, int, int)
     gate_speed = pyqtSignal(int, int, int)
+    health = pyqtSignal(dict)
     command_rx = pyqtSignal(str)
     status = pyqtSignal(str)
     ble_handshake = pyqtSignal(bool)  # True when connect-time PING got PONG from firmware
@@ -2127,6 +2129,10 @@ class TennisBleWorker(QObject):
                     await self._client.start_notify(GATE_SPEED_UUID, self._on_gate_speed)
                 except Exception:
                     self.status.emit("Gate speed characteristic unavailable on this firmware.")
+                try:
+                    await self._client.start_notify(HEALTH_UUID, self._on_health)
+                except Exception:
+                    self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
                     try:
@@ -2307,6 +2313,46 @@ class TennisBleWorker(QObject):
             sample_id, speed_kmh_x10, transit_ms = struct.unpack("<IHH", bytes(data[:8]))
             self.gate_speed.emit(sample_id, speed_kmh_x10, transit_ms)
 
+    def _on_health(self, _sender, data: bytearray):
+        # Layout (LE):
+        #   uint32 mainHits, uint32 mainSinceMs, uint8 mainState,
+        #   uint32 gateAHits, uint32 gateASinceMs, uint8 gateAState,
+        #   uint32 gateBHits, uint32 gateBSinceMs, uint8 gateBState,
+        #   uint32 impactSinceMs, uint16 impactBaselineMg
+        if len(data) < struct.calcsize("<IIBIIBIIBIH"):
+            return
+        unpacked = struct.unpack("<IIBIIBIIBIH", bytes(data[: struct.calcsize("<IIBIIBIIBIH")]))
+        (
+            main_hits, main_since_ms, main_state,
+            gate_a_hits, gate_a_since_ms, gate_a_state,
+            gate_b_hits, gate_b_since_ms, gate_b_state,
+            impact_since_ms, impact_baseline_mg,
+        ) = unpacked
+        SENT_NEVER = 0xFFFFFFFF
+        payload = {
+            "main": {
+                "hits": int(main_hits),
+                "since_ms": None if main_since_ms == SENT_NEVER else int(main_since_ms),
+                "state": int(main_state),
+            },
+            "gate_a": {
+                "hits": int(gate_a_hits),
+                "since_ms": None if gate_a_since_ms == SENT_NEVER else int(gate_a_since_ms),
+                "state": int(gate_a_state),
+            },
+            "gate_b": {
+                "hits": int(gate_b_hits),
+                "since_ms": None if gate_b_since_ms == SENT_NEVER else int(gate_b_since_ms),
+                "state": int(gate_b_state),
+            },
+            "impact": {
+                "since_ms": None if impact_since_ms == SENT_NEVER else int(impact_since_ms),
+                "baseline_mg": int(impact_baseline_mg),
+            },
+        }
+        self._diag("health", payload)
+        self.health.emit(payload)
+
 
 class TennisDashboard(QMainWindow):
     def __init__(self):
@@ -2480,6 +2526,11 @@ class TennisDashboard(QMainWindow):
         self.link_chip = QLabel("HANDSHAKE\n—")
         self.link_chip.setObjectName("ChipMuted")
         self.link_chip.setMinimumWidth(102)
+        self.health_chip = QLabel("SENSOR HEALTH\n— pending")
+        self.health_chip.setObjectName("ChipMuted")
+        self.health_chip.setMinimumWidth(160)
+        self.health_chip.setToolTip("Sensor health: hover for per-sensor details")
+        self._latest_health: dict | None = None
         self.btn_stats_menu = QPushButton("📊")
         self.btn_stats_menu.setObjectName("IconBtn")
         self.btn_stats_menu.setFixedSize(30, 22)
@@ -2497,6 +2548,7 @@ class TennisDashboard(QMainWindow):
         hh.addWidget(self.mode_chip)
         hh.addWidget(self.sensors_chip)
         hh.addWidget(self.link_chip)
+        hh.addWidget(self.health_chip)
         hh.addWidget(self.btn_stats_menu)
         hh.addWidget(self.btn_settings_menu)
         hh.addWidget(self.clock_lbl)
@@ -3780,12 +3832,13 @@ class TennisDashboard(QMainWindow):
             #MiniStatTitle { color: #9db5ce; font-size: 10px; }
             #MiniStatValue { color: #e9f2ff; font-size: 15px; font-weight: 800; }
             #SmallMuted { color: #a1b5cc; font-size: 10px; }
-            #ChipOk, #ChipErr, #ChipMuted, #ChipLinkOk, #ChipLinkWarn {
+            #ChipOk, #ChipErr, #ChipWarn, #ChipMuted, #ChipLinkOk, #ChipLinkWarn {
                 border: 1px solid #1f4368; border-radius: 7px; padding: 6px;
                 font-size: 10px; font-weight: 800; qproperty-alignment: AlignCenter;
             }
             #ChipOk { color: #8ff0af; }
             #ChipErr { color: #ff7f7f; }
+            #ChipWarn { color: #ffd78a; border-color: #8a6a2a; background: #2a2210; }
             #ChipMuted { color: #7a8fa8; border-color: #223952; }
             #ChipLinkOk { color: #b8f7ff; border-color: #2a9db8; background: #062a35; }
             #ChipLinkWarn { color: #ffd78a; border-color: #8a6a2a; background: #2a2210; }
@@ -4107,6 +4160,7 @@ class TennisDashboard(QMainWindow):
         self._worker.telemetry.connect(self._on_telemetry)
         self._worker.impact.connect(self._on_impact_packet)
         self._worker.gate_speed.connect(self._on_gate_speed_packet)
+        self._worker.health.connect(self._on_sensor_health)
         self._worker.command_rx.connect(self._on_command_rx)
         self._worker.status.connect(self._on_status)
         self._thread.start()
@@ -4222,6 +4276,11 @@ class TennisDashboard(QMainWindow):
             self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
+            self.health_chip.setText("SENSOR HEALTH\n— pending")
+            self.health_chip.setObjectName("ChipMuted")
+            self.health_chip.style().polish(self.health_chip)
+            self.health_chip.setToolTip("Sensor health: hover for per-sensor details")
+            self._latest_health = None
             self._reset_link_badge()
             if self._thread and self._thread.isRunning():
                 self._set_connection_wizard_sensor("Sensor found: scanning...")
@@ -4293,6 +4352,67 @@ class TennisDashboard(QMainWindow):
         self._last_gate_speed_ts = time.time()
         self.telemetry.gate_speed_mph = mph
         self.lbl_gate_speed.setText(f"Gate Speed         {mph:>4.1f} mph ({transit_ms} ms)")
+
+    @staticmethod
+    def _classify_ky003_health(entry: dict) -> tuple[str, str]:
+        """Returns (status, detail) where status ∈ {'ok','warn','err'}."""
+        hits = int(entry.get("hits", 0))
+        since_ms = entry.get("since_ms")
+        state = int(entry.get("state", 1))
+        if hits > 0 and since_ms is not None and since_ms < 60_000:
+            return ("ok", f"{hits} hits, last {since_ms/1000:.1f}s ago")
+        if hits > 0:
+            return ("warn", f"{hits} hits, idle {(since_ms or 0)/1000:.0f}s")
+        if state == 1:
+            return ("warn", "no hits yet, idle high (HIGH = pullup OK)")
+        return ("err", "stuck LOW; check wiring/power")
+
+    @staticmethod
+    def _classify_impact_health(entry: dict) -> tuple[str, str]:
+        baseline = int(entry.get("baseline_mg", 0))
+        since_ms = entry.get("since_ms")
+        if baseline == 0:
+            return ("err", "no baseline (sensor not initialized)")
+        if 700 <= baseline <= 1300:
+            note = f"baseline {baseline} mg (gravity OK)"
+            if since_ms is not None and since_ms < 60_000:
+                return ("ok", f"{note}; last impact {since_ms/1000:.1f}s ago")
+            return ("ok", note)
+        if 400 <= baseline < 700 or 1300 < baseline <= 2200:
+            return ("warn", f"baseline {baseline} mg (off-axis or calibration)")
+        return ("err", f"baseline {baseline} mg (likely floating)")
+
+    def _on_sensor_health(self, payload: dict):
+        self._latest_health = payload
+        main_s, main_d = self._classify_ky003_health(payload.get("main", {}))
+        a_s, a_d = self._classify_ky003_health(payload.get("gate_a", {}))
+        b_s, b_d = self._classify_ky003_health(payload.get("gate_b", {}))
+        imp_s, imp_d = self._classify_impact_health(payload.get("impact", {}))
+
+        glyph = {"ok": "✓", "warn": "⚠", "err": "✗"}
+        summary = (
+            f"M{glyph[main_s]} A{glyph[a_s]} B{glyph[b_s]} I{glyph[imp_s]}"
+        )
+        self.health_chip.setText(f"SENSOR HEALTH\n{summary}")
+
+        worst = "ok"
+        for s in (main_s, a_s, b_s, imp_s):
+            if s == "err":
+                worst = "err"
+                break
+            if s == "warn" and worst != "err":
+                worst = "warn"
+        self.health_chip.setObjectName(
+            "ChipOk" if worst == "ok" else ("ChipWarn" if worst == "warn" else "ChipErr")
+        )
+        self.health_chip.style().polish(self.health_chip)
+        self.health_chip.setToolTip(
+            "Sensor Health\n"
+            f"  Main (GPIO 4):    {glyph[main_s]} {main_d}\n"
+            f"  Gate A (GPIO 26): {glyph[a_s]} {a_d}\n"
+            f"  Gate B (GPIO 27): {glyph[b_s]} {b_d}\n"
+            f"  Impact (ADXL):    {glyph[imp_s]} {imp_d}"
+        )
 
     def _on_impact_packet(
         self,

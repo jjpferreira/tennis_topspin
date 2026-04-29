@@ -106,6 +106,7 @@ void KY003Sensor::pushEdgeTime(uint32_t nowMs) {
     if (_edgeSize < KY003_EDGE_HISTORY_LEN) {
         _edgeSize++;
     }
+    _lastEdgeMs = nowMs;
 }
 
 bool KY003Sensor::shouldCountEdge(uint8_t previous, uint8_t current) const {

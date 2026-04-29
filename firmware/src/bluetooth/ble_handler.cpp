@@ -41,6 +41,7 @@ BLEHandler::BLEHandler()
       _rpmChar(nullptr),
       _impactChar(nullptr),
       _gateSpeedChar(nullptr),
+      _healthChar(nullptr),
       _commandChar(nullptr),
       _cmdMutex(xSemaphoreCreateMutex()),
       _deferredCommand("") {}
@@ -92,6 +93,12 @@ void BLEHandler::setupCharacteristics() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     _gateSpeedChar->addDescriptor(new BLE2902());
+
+    _healthChar = _service->createCharacteristic(
+        TENNIS_HEALTH_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    _healthChar->addDescriptor(new BLE2902());
 
     _commandChar = _service->createCharacteristic(
         TENNIS_COMMAND_UUID,
@@ -204,6 +211,51 @@ void BLEHandler::pushGateSpeed(
 
     _gateSpeedChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));
     _gateSpeedChar->notify();
+}
+
+void BLEHandler::pushHealth(
+    uint32_t mainHits,
+    uint32_t mainSinceMs,
+    uint8_t mainState,
+    uint32_t gateAHits,
+    uint32_t gateASinceMs,
+    uint8_t gateAState,
+    uint32_t gateBHits,
+    uint32_t gateBSinceMs,
+    uint8_t gateBState,
+    uint32_t impactSinceMs,
+    uint16_t impactBaselineMg
+) {
+    if (!_connected || !_healthChar) return;
+
+    struct __attribute__((packed)) HealthPayload {
+        uint32_t mainHits;
+        uint32_t mainSinceMs;
+        uint8_t  mainState;
+        uint32_t gateAHits;
+        uint32_t gateASinceMs;
+        uint8_t  gateAState;
+        uint32_t gateBHits;
+        uint32_t gateBSinceMs;
+        uint8_t  gateBState;
+        uint32_t impactSinceMs;
+        uint16_t impactBaselineMg;
+    } payload = {
+        mainHits,
+        mainSinceMs,
+        mainState,
+        gateAHits,
+        gateASinceMs,
+        gateAState,
+        gateBHits,
+        gateBSinceMs,
+        gateBState,
+        impactSinceMs,
+        impactBaselineMg
+    };
+
+    _healthChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));
+    _healthChar->notify();
 }
 
 void BLEHandler::onDataReceived(const String& command) {

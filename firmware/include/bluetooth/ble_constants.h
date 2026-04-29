@@ -10,6 +10,7 @@
 #define TENNIS_RPM_X10_UUID      "7be5483e-36e1-4688-b7f5-ea07361b26a7" // uint16 rpm * 10
 #define TENNIS_IMPACT_UUID       "7be5483e-36e1-4688-b7f5-ea07361b26a5" // packed impact payload
 #define TENNIS_GATE_SPEED_UUID   "7be5483e-36e1-4688-b7f5-ea07361b26a6" // packed gate-speed payload
+#define TENNIS_HEALTH_UUID       "7be5483e-36e1-4688-b7f5-ea07361b26a8" // packed sensor-health payload
 
 // Control characteristic (UTF-8 write commands)
 #define TENNIS_COMMAND_UUID      "7be5483e-36e1-4688-b7f5-ea07361b26a4"

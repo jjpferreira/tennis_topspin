@@ -49,7 +49,27 @@ void ADXL335Sensor::begin() {
     _baselineX = sx / static_cast<float>(ADXL335_BASELINE_SAMPLES);
     _baselineY = sy / static_cast<float>(ADXL335_BASELINE_SAMPLES);
     _baselineZ = sz / static_cast<float>(ADXL335_BASELINE_SAMPLES);
+    _baselineEstablished = true;
     _lastSampleMs = millis();
+}
+
+uint16_t ADXL335Sensor::getBaselineMagnitudeMg() const {
+    if (!_baselineEstablished || _calibration.countsPerG <= 0.0f) {
+        return 0;
+    }
+    // 12-bit ADC midrail = 2048. The deviation of the resting baseline from
+    // midrail is the gravity vector magnitude. For a healthy ADXL335 at rest
+    // we expect ~1000 mg (1 g). Floating pins read near rails so the result
+    // is far outside that band.
+    constexpr float kMidrail = 2048.0f;
+    const float dx = _baselineX - kMidrail;
+    const float dy = _baselineY - kMidrail;
+    const float dz = _baselineZ - kMidrail;
+    const float magCounts = sqrtf(dx * dx + dy * dy + dz * dz);
+    const float magMg = (magCounts * 1000.0f) / _calibration.countsPerG;
+    if (magMg <= 0.0f) return 0;
+    if (magMg >= 65535.0f) return 65535;
+    return static_cast<uint16_t>(magMg);
 }
 
 void ADXL335Sensor::update(uint32_t nowMs) {

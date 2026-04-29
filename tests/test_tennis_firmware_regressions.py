@@ -46,6 +46,7 @@ def test_tennis_ble_contract_has_service_and_expected_characteristics():
         "TENNIS_RPM_X10_UUID",
         "TENNIS_IMPACT_UUID",
         "TENNIS_GATE_SPEED_UUID",
+        "TENNIS_HEALTH_UUID",
         "TENNIS_COMMAND_UUID",
     ):
         assert f"#define {name}" in ble_constants
@@ -89,6 +90,26 @@ def test_tennis_streaming_defaults_to_on_without_keepalive_gate():
     assert 'bleHandler.notifyCommandAck("PONG")' in sketch
     assert "const bool nowConnected = bleHandler.isConnected();" in sketch
     assert "if ((nowMs - lastNotifyMs) >= BLE_FAST_NOTIFY_INTERVAL_MS && isStreamActive(nowMs)) {" in sketch
+
+
+def test_tennis_sensor_health_telemetry_is_published():
+    sketch = read_text(SKETCH)
+    ble_handler_h = read_text(BLE_HANDLER_H)
+    ble_handler_cpp = read_text(BLE_HANDLER_CPP)
+
+    assert "void pushHealth(" in ble_handler_h
+    assert "void BLEHandler::pushHealth(" in ble_handler_cpp
+    assert "_healthChar->notify();" in ble_handler_cpp
+    assert "TENNIS_HEALTH_UUID" in ble_handler_cpp
+
+    assert "static void publishSensorHealth(uint32_t nowMs)" in sketch
+    assert "publishSensorHealth(now);" in sketch
+    assert "bleHandler.pushHealth(" in sketch
+    assert "sensor.getLastEdgeMs()" in sketch
+    assert "gateStartSensor.getLastEdgeMs()" in sketch
+    assert "gateEndSensor.getLastEdgeMs()" in sketch
+    assert "impactSensor.getLastImpactMs()" in sketch
+    assert "impactSensor.getBaselineMagnitudeMg()" in sketch
 
 
 def test_tennis_stream_is_rearmed_on_each_new_client_connection():

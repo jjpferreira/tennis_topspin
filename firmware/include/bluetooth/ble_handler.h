@@ -47,6 +47,19 @@ public:
         uint16_t speedKmhX10,
         uint32_t transitUs
     );
+    void pushHealth(
+        uint32_t mainHits,
+        uint32_t mainSinceMs,
+        uint8_t mainState,
+        uint32_t gateAHits,
+        uint32_t gateASinceMs,
+        uint8_t gateAState,
+        uint32_t gateBHits,
+        uint32_t gateBSinceMs,
+        uint8_t gateBState,
+        uint32_t impactSinceMs,
+        uint16_t impactBaselineMg
+    );
 
     /** UTF-8 acknowledgement notify on the command characteristic (e.g. PONG after PING). */
     void notifyCommandAck(const char* utf8);
@@ -78,6 +91,7 @@ private:
     BLECharacteristic* _rpmChar;
     BLECharacteristic* _impactChar;
     BLECharacteristic* _gateSpeedChar;
+    BLECharacteristic* _healthChar;
     BLECharacteristic* _commandChar;
 
     SemaphoreHandle_t _cmdMutex;

@@ -19,6 +19,8 @@ public:
 
     uint8_t getState() const { return _stableState; }
     uint32_t getHitCount() const { return _hitCount; }
+    uint32_t getLastEdgeMs() const { return _edgeSize > 0 ? _lastEdgeMs : 0; }
+    bool hasObservedEdge() const { return _edgeSize > 0; }
     uint16_t getRateX10(uint32_t nowMs) const;
     // Instantaneous RPM*10 from the most recent inter-edge intervals.
     // Returns 0 if there is no recent activity within `freshnessMs`.
@@ -43,4 +45,5 @@ private:
     uint32_t _edgeTimes[KY003_EDGE_HISTORY_LEN] = {};
     size_t _edgeHead = 0;
     size_t _edgeSize = 0;
+    uint32_t _lastEdgeMs = 0;
 };

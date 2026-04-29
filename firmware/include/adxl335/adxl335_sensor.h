@@ -27,6 +27,9 @@ public:
     void update(uint32_t nowMs);
     void captureImpact(uint32_t nowMs);
     ImpactSample getLastImpact() const { return _lastImpact; }
+    uint32_t getLastImpactMs() const { return _lastImpact.capturedAtMs; }
+    bool hasBaseline() const { return _baselineEstablished; }
+    uint16_t getBaselineMagnitudeMg() const;
     void setCalibration(const ImpactCalibration& cfg);
     ImpactCalibration getCalibration() const { return _calibration; }
     static ImpactCalibration defaultCalibration();
@@ -39,6 +42,7 @@ private:
     float _baselineX = 0.0f;
     float _baselineY = 0.0f;
     float _baselineZ = 0.0f;
+    bool _baselineEstablished = false;
     uint32_t _lastSampleMs = 0;
     ImpactSample _lastImpact;
     ImpactCalibration _calibration = defaultCalibration();

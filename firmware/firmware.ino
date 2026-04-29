@@ -394,6 +394,32 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
     }
 }
 
+static uint32_t sinceMs(uint32_t nowMs, uint32_t lastMs) {
+    if (lastMs == 0) return 0xFFFFFFFFu;
+    return nowMs - lastMs;
+}
+
+static void publishSensorHealth(uint32_t nowMs) {
+    static uint32_t lastHealthMs = 0;
+    if ((nowMs - lastHealthMs) < 1000u) return;
+    if (!bleHandler.isConnected()) return;
+    lastHealthMs = nowMs;
+
+    bleHandler.pushHealth(
+        sensor.getHitCount(),
+        sinceMs(nowMs, sensor.getLastEdgeMs()),
+        sensor.getState(),
+        gateStartSensor.getHitCount(),
+        sinceMs(nowMs, gateStartSensor.getLastEdgeMs()),
+        gateStartSensor.getState(),
+        gateEndSensor.getHitCount(),
+        sinceMs(nowMs, gateEndSensor.getLastEdgeMs()),
+        gateEndSensor.getState(),
+        sinceMs(nowMs, impactSensor.getLastImpactMs()),
+        impactSensor.getBaselineMagnitudeMg()
+    );
+}
+
 static void updateLedFeedback(uint32_t nowMs) {
 #if LED_RING_ENABLED
     static uint32_t s_lastLedMs = 0;
@@ -455,5 +481,6 @@ void loop() {
     SensorPipelineResult sensorResult = runSensorPipeline(now, nowUs);
     processBleCommands(now);
     publishBleTelemetry(now, sensorResult);
+    publishSensorHealth(now);
     updateLedFeedback(now);
 }
