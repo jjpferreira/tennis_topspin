@@ -528,7 +528,9 @@ void setup() {
     bleHandler.startAdvertising();
     g_lastStreamKeepaliveMs = millis();
 
-    Logger::info("BLE advertising started");
+    Logger::info(String("BLE advertising started as ") + APP_NAME +
+                 " (svc=" + TENNIS_SERVICE_UUID + ", chars=" +
+                 String(bleHandler.characteristicCount()) + ")");
 #if BLE_STREAM_DEFAULT_ENABLED
     Logger::info("Live stream default: ENABLED");
 #else
@@ -544,5 +546,6 @@ void loop() {
     publishBleTelemetry(now, sensorResult);
     publishSensorHealth(now);
     publishFirmwareHeartbeat(now);
+    bleHandler.publishProfileHeartbeat(now);
     updateLedFeedback(now);
 }

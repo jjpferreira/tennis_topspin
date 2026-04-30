@@ -31,6 +31,27 @@ public:
 
     bool isConnected() const { return _connected; }
 
+    /**
+     * Print a one-shot dump of the BLE GATT profile to Serial:
+     *   - advertised device name
+     *   - service UUID
+     *   - bluetooth MAC address (BD_ADDR)
+     *   - every registered characteristic UUID + tag
+     * Use this to confirm at boot that the firmware really does expose all 9
+     * characteristics (otherwise the macOS GATT cache is hiding something).
+     */
+    void logProfileToSerial();
+
+    /**
+     * Periodic compact restatement of the BLE profile on Serial. Prints once
+     * every ~10 seconds to make it easy to confirm the running profile at any
+     * point during a session.
+     */
+    void publishProfileHeartbeat(uint32_t nowMs);
+
+    /** Number of GATT characteristics created on the tennis service. */
+    uint8_t characteristicCount() const;
+
     void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10, uint16_t rpmX10);
     void pushImpact(
         uint32_t hitCount,

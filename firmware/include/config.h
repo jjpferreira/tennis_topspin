@@ -2,7 +2,12 @@
 
 #include "firmware_version.h"
 
-#define APP_NAME "TENNIS_KY003"
+// Bumping the suffix invalidates macOS CoreBluetooth's per-peripheral GATT
+// cache by making the device look brand new (different advertised name +
+// service UUID = no cached profile). This is the only reliable way to force
+// macOS to re-discover the full 9-characteristic profile when "Forget Device"
+// + bluetoothd restart aren't enough.
+#define APP_NAME "TENNIS_KY003_V2"
 #define APP_VERSION FIRMWARE_VERSION_STRING
 
 // Hardware pins

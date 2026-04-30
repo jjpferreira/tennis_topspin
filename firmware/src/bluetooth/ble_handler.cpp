@@ -18,6 +18,8 @@ public:
         BLEHandler::getInstance()._connected = true;
         BLEHandler::getInstance()._reconnectPending = false;
         digitalWrite(STATUS_LED_PIN, HIGH);
+        Serial.println(F("[BLE] client connected"));
+        BLEHandler::getInstance().logProfileToSerial();
     }
 
     void onDisconnect(BLEServer* pServer) override {
@@ -25,6 +27,7 @@ public:
         BLEHandler::getInstance()._connected = false;
         BLEHandler::getInstance()._reconnectPending = true;
         digitalWrite(STATUS_LED_PIN, LOW);
+        Serial.println(F("[BLE] client disconnected — re-advertising"));
     }
 };
 
@@ -56,6 +59,11 @@ void BLEHandler::begin() {
     setupCharacteristics();
     _service->start();
     setupAdvertising();
+    // Always print the full profile right after registration so the operator
+    // can prove on serial that all 9 characteristics were created. This is the
+    // ground truth — the macOS GATT cache may still serve a stale view, but
+    // the firmware itself broadcasts the full set every boot.
+    logProfileToSerial();
 }
 
 void BLEHandler::setupCharacteristics() {
@@ -295,4 +303,65 @@ String BLEHandler::takeDeferredCommand() {
     _deferredCommand = "";
     xSemaphoreGive(_cmdMutex);
     return cmd;
+}
+
+uint8_t BLEHandler::characteristicCount() const {
+    uint8_t n = 0;
+    if (_stateChar)     n++;
+    if (_countChar)     n++;
+    if (_rateChar)      n++;
+    if (_rpmChar)       n++;
+    if (_impactChar)    n++;
+    if (_gateSpeedChar) n++;
+    if (_healthChar)    n++;
+    if (_fwVersionChar) n++;
+    if (_commandChar)   n++;
+    return n;
+}
+
+static void logChar(const char* tag, BLECharacteristic* ch) {
+    Serial.print(F("[GATT]   "));
+    if (!ch) {
+        Serial.print(F("MISSING "));
+        Serial.println(tag);
+        return;
+    }
+    Serial.print(ch->getUUID().toString().c_str());
+    Serial.print(F(" ("));
+    Serial.print(tag);
+    Serial.println(F(")"));
+}
+
+void BLEHandler::logProfileToSerial() {
+    Serial.print(F("[GATT] device_name="));
+    Serial.println(APP_NAME);
+    Serial.print(F("[GATT] mac="));
+    Serial.println(BLEDevice::getAddress().toString().c_str());
+    Serial.print(F("[GATT] service_uuid="));
+    Serial.println(TENNIS_SERVICE_UUID);
+    Serial.print(F("[GATT] characteristic_count="));
+    Serial.println(characteristicCount());
+    logChar("state",      _stateChar);
+    logChar("count",      _countChar);
+    logChar("rate",       _rateChar);
+    logChar("rpm",        _rpmChar);
+    logChar("impact",     _impactChar);
+    logChar("gate-speed", _gateSpeedChar);
+    logChar("health",     _healthChar);
+    logChar("fw-version", _fwVersionChar);
+    logChar("command",    _commandChar);
+}
+
+void BLEHandler::publishProfileHeartbeat(uint32_t nowMs) {
+    static uint32_t lastBeatMs = 0;
+    if (lastBeatMs != 0 && (nowMs - lastBeatMs) < 10000u) return;
+    lastBeatMs = nowMs == 0 ? 1 : nowMs;
+    Serial.print(F("[GATT-HB] svc="));
+    Serial.print(TENNIS_SERVICE_UUID);
+    Serial.print(F(" name="));
+    Serial.print(APP_NAME);
+    Serial.print(F(" chars="));
+    Serial.print(characteristicCount());
+    Serial.print(F(" connected="));
+    Serial.println(_connected ? F("yes") : F("no"));
 }
