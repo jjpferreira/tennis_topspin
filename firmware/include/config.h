@@ -26,7 +26,15 @@
 #define KY003_GATE_DEBOUNCE_MS 1u
 #define KY003_RATE_WINDOW_MS 5000u
 #define KY003_EDGE_HISTORY_LEN 256
-#define KY003_GATE_DISTANCE_CM 3.0f
+// Physical centre-to-centre spacing of the two KY-003 gate sensors, in cm.
+// The compile-time default is what we burn into NVS on first boot; the
+// runtime value can be overridden over BLE via `GATE:SET:<cm>` + `GATE:SAVE`,
+// then reset to this default with `GATE:RESET`. Keep this value in sync with
+// `python_app/hardware_config.py::GATE_DISTANCE_CM`. The Python app reads
+// the runtime value from the firmware on connect, so the dashboard always
+// reflects ground truth, but the Python constant is the canonical "what the
+// rig is supposed to be" used for self-tests and offline analysis.
+#define KY003_GATE_DISTANCE_CM 1.0f
 #define KY003_GATE_MIN_TRANSIT_US 500u
 // Allow slow hand-driven A->B magnet passes during bench validation. A real
 // ball pass takes <5ms (well under 1% of this ceiling), so widening the window

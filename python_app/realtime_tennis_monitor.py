@@ -100,6 +100,14 @@ def configure_logging() -> Path:
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
+
+# Physical-rig constants. Treated as the canonical Python copy of values
+# that also live in firmware/include/config.h; both sides must stay in sync
+# (a regression test asserts this).
+from hardware_config import (
+    GATE_DISTANCE_CM as HW_GATE_DISTANCE_CM,
+    RPM_PULSES_PER_REV as HW_RPM_PULSES_PER_REV,
+)
 from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient
 from PyQt6.QtWidgets import (
@@ -2729,8 +2737,8 @@ class TennisDashboard(QMainWindow):
             "contact_full_scale_mg": 1500,
             "min_valid_impact_mg": 250,
         }
-        self._fw_gate_distance_cm = 3.0
-        self._fw_rpm_pulses_per_rev = 1
+        self._fw_gate_distance_cm = HW_GATE_DISTANCE_CM
+        self._fw_rpm_pulses_per_rev = HW_RPM_PULSES_PER_REV
         self._court_surface = "Hard"
         self._drill_mode = "Off"
         self._drill_goal = 20
@@ -5248,16 +5256,23 @@ class TennisDashboard(QMainWindow):
                     # Prefer gate A/B speed when fresh. Fall back to model speed
                     # so the basic main hall RPM/count path remains visible even
                     # when gate characteristics are unavailable.
+                    #
+                    # Gate speed is a direct physical measurement (distance /
+                    # transit_time across the two KY-003 sensors). We do NOT
+                    # clamp it to the profile's "plausible shot" floor, because
+                    # that floor is a sanity bound on the *model* estimate
+                    # (which is just a curve fit from RPM/rate and would
+                    # otherwise produce nonsense at idle). Snapping a real
+                    # physical reading up to live_speed_min lies to the
+                    # operator -- e.g. a 4 km/h hand sweep would show as
+                    # "24 mph" on a Newbie profile, hiding both bench tests
+                    # and any genuinely soft real shot. We keep the upper
+                    # bound as a safety net against pathological transit
+                    # times (eg. clock anomaly leaking through).
                     speed = model_speed
                     now = time.time()
                     if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:
-                        speed = max(
-                            prof["live_speed_min"],
-                            min(
-                                prof["live_speed_max"],
-                                self._last_gate_speed_mph,
-                            ),
-                        )
+                        speed = min(prof["live_speed_max"], self._last_gate_speed_mph)
                     arm = max(
                         -prof["live_arm_abs"],
                         min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),

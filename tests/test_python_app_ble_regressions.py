@@ -1,16 +1,29 @@
 from pathlib import Path
+import importlib.util
 import re
+import sys
 
 
-APP_FILE = (
-    Path(__file__).resolve().parents[1]
-    / "python_app"
-    / "realtime_tennis_monitor.py"
-)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+APP_FILE = REPO_ROOT / "python_app" / "realtime_tennis_monitor.py"
+HW_CONFIG_FILE = REPO_ROOT / "python_app" / "hardware_config.py"
+FIRMWARE_CONFIG_H = REPO_ROOT / "firmware" / "include" / "config.h"
 
 
 def read_app() -> str:
     return APP_FILE.read_text(encoding="utf-8")
+
+
+def _load_hardware_config():
+    """Import python_app/hardware_config.py without polluting sys.path."""
+    spec = importlib.util.spec_from_file_location(
+        "tennis_hardware_config", HW_CONFIG_FILE
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["tennis_hardware_config"] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def test_ble_worker_lock_prevents_hopping_without_freezing_reconnects():
@@ -77,10 +90,19 @@ def test_live_speed_prefers_gate_packets_with_count_based_shot_append():
     assert telemetry_fn, "_on_telemetry block not found"
     # Live shot reconstruction remains count-driven; gate A/B speed should be
     # preferred when fresh, with model fallback when gate is missing/stale.
-    assert "self._append_shot(" in telemetry_fn.group(0)
-    assert "self._last_gate_speed_mph" in telemetry_fn.group(0)
-    assert "model_speed = max(" in telemetry_fn.group(0)
-    assert "if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:" in telemetry_fn.group(0)
+    body = telemetry_fn.group(0)
+    assert "self._append_shot(" in body
+    assert "self._last_gate_speed_mph" in body
+    assert "model_speed = max(" in body
+    assert "if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:" in body
+    # Gate speed is a direct physical measurement and must NOT be clamped to
+    # the profile's "plausible shot" floor (live_speed_min). Doing so silently
+    # snaps slow bench/hand-sweep tests up to ~24/38/46 mph and hides any
+    # genuinely soft real shot. Only the upper bound is allowed as a safety
+    # net against pathological transit times.
+    assert "speed = min(prof[\"live_speed_max\"], self._last_gate_speed_mph)" in body
+    # The OLD min/max clamp form must not return for the gate-speed branch.
+    assert "speed = max(\n                            prof[\"live_speed_min\"]," not in body
 
 
 def test_gate_speed_packets_are_logged_so_pipeline_is_visible_in_logs():
@@ -107,3 +129,63 @@ def test_gate_speed_packets_are_logged_so_pipeline_is_visible_in_logs():
     # Short/garbled packets must not be dropped silently either: a warning
     # gets emitted so we can spot a payload-shape mismatch immediately.
     assert "GATE-SPEED packet too short" in body
+
+
+def test_python_and_firmware_share_the_same_gate_distance():
+    """Regression guard: hardware_config.py::GATE_DISTANCE_CM and
+    firmware/include/config.h::KY003_GATE_DISTANCE_CM must agree on the
+    physical sensor spacing.
+
+    Speed = distance / transit_time. If these drift apart the dashboard
+    silently scales every shot speed by the wrong factor, with no other
+    visible symptom -- the kind of bug that survives weeks because the
+    numbers "look reasonable". Forcing them to match is the cheapest way
+    to keep that drift impossible.
+    """
+    hw = _load_hardware_config()
+    config_h = FIRMWARE_CONFIG_H.read_text(encoding="utf-8")
+
+    # Pull the float literal out of `#define KY003_GATE_DISTANCE_CM <X>f`.
+    match = re.search(
+        r"#define\s+KY003_GATE_DISTANCE_CM\s+([0-9]+\.?[0-9]*)f",
+        config_h,
+    )
+    assert match, "KY003_GATE_DISTANCE_CM macro not found in config.h"
+    firmware_value = float(match.group(1))
+
+    assert hw.GATE_DISTANCE_CM == firmware_value, (
+        f"gate-distance mismatch: hardware_config.py={hw.GATE_DISTANCE_CM}cm "
+        f"vs firmware/config.h={firmware_value}cm. Update BOTH whenever the "
+        f"physical rig changes."
+    )
+
+    # RPM pulses-per-rev is a similar sync risk.
+    rpm_match = re.search(
+        r"#define\s+KY003_RPM_PULSES_PER_REV\s+([0-9]+)u",
+        config_h,
+    )
+    assert rpm_match, "KY003_RPM_PULSES_PER_REV macro not found in config.h"
+    firmware_rpm = int(rpm_match.group(1))
+    assert hw.RPM_PULSES_PER_REV == firmware_rpm, (
+        f"rpm pulses/rev mismatch: hardware_config.py={hw.RPM_PULSES_PER_REV} "
+        f"vs firmware/config.h={firmware_rpm}. Update BOTH whenever the "
+        f"main hall sensor magnet count changes."
+    )
+
+
+def test_python_app_imports_hardware_config_for_defaults():
+    """Regression guard: realtime_tennis_monitor.py must source its
+    gate-distance / pulses-per-rev defaults from hardware_config.py rather
+    than hard-coding them inline. Hard-coded copies were the reason the
+    Python default sat at 3.0cm while the firmware default sat at the same
+    -- a value that masked the actual rig (10mm) and silently scaled every
+    recorded speed by 3x.
+    """
+    src = read_app()
+    assert "from hardware_config import" in src
+    assert "GATE_DISTANCE_CM as HW_GATE_DISTANCE_CM" in src
+    assert "self._fw_gate_distance_cm = HW_GATE_DISTANCE_CM" in src
+    assert "self._fw_rpm_pulses_per_rev = HW_RPM_PULSES_PER_REV" in src
+    # Ensure the previous hard-coded defaults are gone.
+    assert "self._fw_gate_distance_cm = 3.0" not in src
+    assert "self._fw_rpm_pulses_per_rev = 1\n" not in src

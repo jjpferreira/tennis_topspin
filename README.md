@@ -40,8 +40,23 @@ Use this as the quick wiring reference for the ESP32 firmware.
 | WS2812 LED ring (optional) | Visual feedback ring data line | `GPIO 12` | `LED_PIN` |
 
 Reference distance for gate speed timing:
-- `KY003_GATE_DISTANCE_CM = 3.0` (start-to-end sensor spacing)
+- `KY003_GATE_DISTANCE_CM = 1.0` (centre-to-centre sensor spacing in cm)
 - Main KY-003 also feeds RPM derivation (`KY003_RPM_PULSES_PER_REV`) via trigger rate conversion.
+
+> **Single source of truth for physical-rig constants.** The same gate
+> distance and pulses-per-rev values live in two places — both must be
+> updated together whenever the hardware changes:
+>
+> 1. `firmware/include/config.h` (compile-time defaults baked into firmware)
+> 2. `python_app/hardware_config.py` (Python-side defaults and analysis)
+>
+> A regression test (`tests/test_python_app_ble_regressions.py`) fails the
+> build if the two ever drift, because a mismatch silently scales every
+> recorded shot speed by the wrong factor with no other visible symptom.
+> The firmware's NVS-stored runtime value can still be overridden on the
+> fly via the BLE `GATE:SET:<cm>` / `GATE:SAVE` commands; that override is
+> treated as ground truth for live sessions and the Python constant is the
+> default used until the firmware reports its own value.
 
 ## BLE Data Model
 

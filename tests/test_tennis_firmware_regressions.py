@@ -319,7 +319,7 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "#define KY003_RATE_WINDOW_MS 5000u" in config_h
     assert "#define KY003_GATE_START_PIN" in config_h
     assert "#define KY003_GATE_END_PIN" in config_h
-    assert "#define KY003_GATE_DISTANCE_CM 3.0f" in config_h
+    assert "#define KY003_GATE_DISTANCE_CM 1.0f" in config_h
     assert "#define KY003_GATE_MIN_TRANSIT_US 500u" in config_h
     assert "#define KY003_GATE_MAX_TRANSIT_US 10000000u" in config_h
     assert "#define KY003_RPM_PULSES_PER_REV 1u" in config_h
