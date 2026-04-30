@@ -23,7 +23,9 @@
 #define KY003_EDGE_HISTORY_LEN 256
 #define KY003_GATE_DISTANCE_CM 3.0f
 #define KY003_GATE_MIN_TRANSIT_US 500u
-#define KY003_GATE_MAX_TRANSIT_US 250000u
+// Allow slower manual A->B magnet passes during bench validation.
+// (Real ball passes still land far below this upper bound.)
+#define KY003_GATE_MAX_TRANSIT_US 2000000u
 #define KY003_RPM_PULSES_PER_REV 1u
 // Keep RPM visible a bit longer between pulses so live dashboards do not look
 // dead during low-frequency manual testing.
