@@ -73,7 +73,11 @@ public:
         uint8_t intensityPct,
         int8_t contactX,
         int8_t contactY,
-        bool validImpact
+        bool validImpact,
+        int16_t baselineXMg = 0,
+        int16_t baselineYMg = 0,
+        int16_t baselineZMg = 0,
+        int8_t tiltDeg = 0
     );
     void pushGateSpeed(
         uint32_t sampleId,

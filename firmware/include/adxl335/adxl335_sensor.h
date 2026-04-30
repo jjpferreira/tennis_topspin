@@ -19,6 +19,18 @@ struct ImpactSample {
     int8_t contactY = 0;
     bool valid = false;
     uint32_t capturedAtMs = 0;
+    // Resting gravity vector captured at the moment of impact (in mg). At
+    // rest the magnitude should be ~1000 mg (1 g). We ship these alongside
+    // the impact deltas so the host can derive racket orientation (e.g.
+    // arm/swing tilt) without needing a second BLE characteristic.
+    int16_t baselineXMg = 0;
+    int16_t baselineYMg = 0;
+    int16_t baselineZMg = 0;
+    // Convenience: signed lateral racket tilt in degrees, derived from the
+    // baseline gravity vector. Positive = racket leaning to one side,
+    // negative = the other. Saturated to [-90, 90] so it can be packed
+    // into a single int8_t without losing useful range.
+    int8_t tiltDeg = 0;
 };
 
 class ADXL335Sensor {
@@ -30,6 +42,20 @@ public:
     uint32_t getLastImpactMs() const { return _lastImpact.capturedAtMs; }
     bool hasBaseline() const { return _baselineEstablished; }
     uint16_t getBaselineMagnitudeMg() const;
+    /**
+     * Convert the live EWMA baseline (in raw 12-bit ADC counts, where 2048
+     * is midrail / zero-g) into a signed gravity vector in mg, one axis
+     * per output param. At rest the magnitude is ~1000 mg and the
+     * direction encodes the racket's orientation -- which is what we use
+     * to derive arm/racket tilt.
+     */
+    void getBaselineGravityMg(int16_t& xMg, int16_t& yMg, int16_t& zMg) const;
+    /**
+     * Lateral racket tilt in degrees, derived from the baseline gravity
+     * vector. Positive => leaning toward +X axis, negative => toward -X.
+     * Saturates to [-90, 90]. Returns 0 before a baseline is established.
+     */
+    int8_t getBaselineTiltDeg() const;
     void setCalibration(const ImpactCalibration& cfg);
     ImpactCalibration getCalibration() const { return _calibration; }
     static ImpactCalibration defaultCalibration();

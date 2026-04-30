@@ -66,8 +66,63 @@ def test_refresh_ui_updates_live_metrics_even_with_no_shots():
 
     # The early-return condition previously hid live RPM/speed updates.
     assert "if not self.shots and not force:\n            return" not in src
-    assert "live_speed = self.telemetry.gate_speed_mph" in src
+    # Live speed dial in the no-shots branch must reflect a fresh gate
+    # sample (and decay to 0 when stale) -- not freeze on a previous
+    # value or stay at the simulated baseline.
+    assert "live_speed = (\n                self._last_gate_speed_mph if gate_fresh else 0.0\n            )" in src
     assert 'self.lbl_live_rpm.setText(f"Live RPM' in src
+
+
+def test_ball_speed_metric_slider_starts_at_zero_mph():
+    """Regression guard: bench-test/hand-sweep gate samples must be visible.
+
+    MetricSlider.set_value() clamps the value into [min_v, max_v]. If the
+    speed slider's `min_v` is anything above 0 mph, every sub-threshold
+    sample (a slow drill, a kid's swing, or a manual gate-test sweep at
+    1-4 km/h) is silently snapped up to that floor and the indicator dot
+    pins to the left edge -- exactly the "shows in the logs but no UI
+    representation" failure mode reported during gate-speed bring-up.
+
+    Allow 0 mph as the lower bound so the dial faithfully reflects what
+    the firmware is reporting, even when that is "almost zero".
+    """
+    src = read_app()
+    match = re.search(
+        r'self\.ms_speed\s*=\s*MetricSlider\(\s*"Ball Speed"\s*,\s*([0-9.+-]+)\s*,',
+        src,
+    )
+    assert match, "ms_speed MetricSlider construction not found"
+    floor = float(match.group(1))
+    assert floor == 0, (
+        f"ms_speed slider floor is {floor} mph -- must be 0 so slow gate "
+        f"samples don't get clamped invisible. See "
+        f"test_ball_speed_metric_slider_starts_at_zero_mph for context."
+    )
+
+
+def test_live_speed_dial_prefers_fresh_gate_sample_over_last_shot_speed():
+    """Regression guard: dial must track current ball motion, not last shot.
+
+    Previously _refresh_ui unconditionally pushed `latest.speed` (the last
+    completed shot's value) into the speed dial every 80ms, which meant
+    that bench testing the gate sensors -- where every gate-speed packet
+    is logged but no main-hall hit occurs -- left the dial stuck on the
+    previous shot's speed. The dial must instead prefer a fresh gate
+    sample (within ~1s) and only fall back to the last-shot speed when
+    the gate stream goes quiet.
+    """
+    src = read_app()
+
+    refresh_fn = re.search(
+        r"def _refresh_ui\(self.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert refresh_fn, "_refresh_ui block not found"
+    body = refresh_fn.group(0)
+    assert "gate_fresh = (" in body
+    assert "(now_t - self._last_gate_speed_ts) <= 1.0" in body
+    assert "self._last_gate_speed_mph if gate_fresh else latest.speed" in body
 
 
 def test_live_speed_prefers_gate_packets_with_count_based_shot_append():
@@ -189,3 +244,99 @@ def test_python_app_imports_hardware_config_for_defaults():
     # Ensure the previous hard-coded defaults are gone.
     assert "self._fw_gate_distance_cm = 3.0" not in src
     assert "self._fw_rpm_pulses_per_rev = 1\n" not in src
+
+
+def test_impact_parser_accepts_extended_payload_with_baseline_gravity_and_tilt():
+    """Regression guard: _on_impact must parse the new 23-byte impact frame
+    that carries the racket's resting gravity vector + a derived tilt
+    angle, AND keep parsing the legacy 16- and 13-byte forms.
+
+    Without backward compatibility, an older firmware build in the field
+    would suddenly stop emitting impact events to the dashboard the
+    moment the host upgrades. Without forward compatibility, the new
+    arm-angle source is silently ignored.
+    """
+    src = read_app()
+
+    on_impact = re.search(
+        r"def _on_impact\(self, _sender, data: bytearray\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert on_impact, "_on_impact block not found"
+    body = on_impact.group(0)
+
+    # New 23-byte form is preferred and parsed via the extended struct
+    # spec. The 16-byte legacy form must still be reachable, and the
+    # 13-byte pre-magnitude form must still be reachable too.
+    assert "if len(data) >= 23:" in body
+    assert '"<IhhhHBbbBhhhb"' in body
+    assert "elif len(data) >= 16:" in body
+    assert '"<IhhhHBbbB"' in body
+    assert "elif len(data) >= 13:" in body
+    assert '"<IhhhBbb"' in body
+
+    # Legacy paths emit zeros for the new orientation fields so the
+    # downstream signal signature stays uniform.
+    assert "0, 0, 0, 0," in body
+
+    # Diagnostic line surfaces the new tilt + gravity vector at INFO so
+    # we can confirm end-to-end without a debugger.
+    assert 'tilt={tilt_deg}deg gravity_mg' in body
+
+
+def test_impact_signal_carries_orientation_fields():
+    """The Qt impact signal MUST carry baseline gravity and tilt so the
+    main window's _on_impact_packet can record them. Dropping them at
+    the signal boundary would silently revert arm_angle to the random
+    simulator value even after the firmware was upgraded.
+    """
+    src = read_app()
+    assert (
+        "impact = pyqtSignal(int, int, int, int, int, int, int, int, int, "
+        "int, int, int, int)"
+    ) in src
+
+
+def test_live_arm_angle_uses_measured_tilt_when_fresh():
+    """Regression guard: the count-driven shot reconstruction must prefer
+    the latest ADXL335-derived racket tilt over the legacy random
+    simulator value. The simulator value (`random.uniform(-18.0, 18.0)
+    + impact_x * 0.34`) is allowed only as a fallback for older firmware
+    builds that don't ship the gravity baseline yet, so the dashboard
+    stays usable during a firmware upgrade.
+    """
+    src = read_app()
+
+    # Tilt state initialized on the main window.
+    assert "self._last_arm_tilt_deg = 0.0" in src
+    assert "self._last_arm_tilt_ts = 0.0" in src
+    assert "self._last_gravity_baseline_mg" in src
+
+    # _on_impact_packet stashes the latest measured tilt (only when the
+    # baseline gravity vector is actually present; legacy frames ship
+    # zeros and must NOT overwrite a good reading).
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    pkt_body = pkt.group(0)
+    assert "tilt_deg: int = 0," in pkt_body
+    assert "self._last_arm_tilt_deg = float(tilt_deg)" in pkt_body
+    assert "if gravity_present:" in pkt_body
+
+    # Live shot path prefers the measured tilt when fresh.
+    telemetry = re.search(
+        r"def _on_telemetry\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert telemetry, "_on_telemetry block not found"
+    tbody = telemetry.group(0)
+    assert "self._last_arm_tilt_ts" in tbody
+    assert "arm_fresh" in tbody
+    assert "arm_raw = float(self._last_arm_tilt_deg)" in tbody
+    # The legacy synthetic path stays in place ONLY as the fallback.
+    assert "random.uniform(-18.0, 18.0) + impact_x * 0.34" in tbody

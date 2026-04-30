@@ -196,10 +196,19 @@ void BLEHandler::pushImpact(
     uint8_t intensityPct,
     int8_t contactX,
     int8_t contactY,
-    bool validImpact
+    bool validImpact,
+    int16_t baselineXMg,
+    int16_t baselineYMg,
+    int16_t baselineZMg,
+    int8_t tiltDeg
 ) {
     if (!_connected || !_impactChar) return;
 
+    // Wire format (little-endian, packed). The first 16 bytes are the
+    // legacy contract -- the host must remain backward-compatible because
+    // older firmware builds in the field still ship that form. New
+    // baseline gravity + derived tilt fields are appended at the end so
+    // an older host that only reads 16 bytes keeps working unchanged.
     struct __attribute__((packed)) ImpactPayload {
         uint32_t hitCount;
         int16_t xMg;
@@ -210,6 +219,10 @@ void BLEHandler::pushImpact(
         int8_t contactX;
         int8_t contactY;
         uint8_t flags;
+        int16_t baselineXMg;
+        int16_t baselineYMg;
+        int16_t baselineZMg;
+        int8_t tiltDeg;
     } payload = {
         hitCount,
         xMg,
@@ -219,7 +232,11 @@ void BLEHandler::pushImpact(
         intensityPct,
         contactX,
         contactY,
-        static_cast<uint8_t>(validImpact ? 0x01 : 0x00)
+        static_cast<uint8_t>(validImpact ? 0x01 : 0x00),
+        baselineXMg,
+        baselineYMg,
+        baselineZMg,
+        tiltDeg
     };
 
     _impactChar->setValue(reinterpret_cast<uint8_t*>(&payload), sizeof(payload));

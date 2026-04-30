@@ -425,6 +425,63 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "impact.valid" in sketch
 
 
+def test_tennis_firmware_impact_payload_carries_baseline_gravity_and_tilt():
+    """The impact characteristic must carry the racket's resting gravity
+    vector (and a derived signed tilt) so the host can replace its
+    simulated `arm_angle` value with a real ADXL335 measurement.
+
+    The legacy 16-byte contract (`<IhhhHBbbB`) MUST stay intact at the
+    front of the payload because older python builds in the field still
+    parse exactly that. New fields are appended so a 16-byte reader keeps
+    working unchanged. This test pins both halves of the contract.
+    """
+    adxl_h = read_text(ADXL_H)
+    adxl_cpp = read_text(ADXL_CPP)
+    ble_handler_h = read_text(BLE_HANDLER_H)
+    ble_handler_cpp = read_text(BLE_HANDLER_CPP)
+    sketch = read_text(SKETCH)
+
+    # ImpactSample now carries the gravity baseline and derived tilt.
+    assert "int16_t baselineXMg = 0;" in adxl_h
+    assert "int16_t baselineYMg = 0;" in adxl_h
+    assert "int16_t baselineZMg = 0;" in adxl_h
+    assert "int8_t tiltDeg = 0;" in adxl_h
+    assert "void getBaselineGravityMg(" in adxl_h
+    assert "int8_t getBaselineTiltDeg() const;" in adxl_h
+
+    # Implementation: tilt must be derived from the EWMA baseline (not the
+    # impact peak) and saturated to [-90, 90] so it fits in int8_t.
+    assert "void ADXL335Sensor::getBaselineGravityMg(" in adxl_cpp
+    assert "int8_t ADXL335Sensor::getBaselineTiltDeg() const" in adxl_cpp
+    assert "if (deg < -90.0f) deg = -90.0f;" in adxl_cpp
+    assert "if (deg >  90.0f) deg =  90.0f;" in adxl_cpp
+    assert "_lastImpact.tiltDeg = getBaselineTiltDeg();" in adxl_cpp
+
+    # BLE handler signature accepts the baseline + tilt fields with safe
+    # defaults so older callers keep compiling.
+    assert "int16_t baselineXMg = 0," in ble_handler_h
+    assert "int16_t baselineYMg = 0," in ble_handler_h
+    assert "int16_t baselineZMg = 0," in ble_handler_h
+    assert "int8_t tiltDeg = 0" in ble_handler_h
+
+    # Wire format: legacy 9 fields (16 bytes) followed by 3xint16 + int8.
+    assert "uint32_t hitCount;" in ble_handler_cpp
+    assert "uint8_t flags;" in ble_handler_cpp
+    assert "int16_t baselineXMg;" in ble_handler_cpp
+    assert "int16_t baselineYMg;" in ble_handler_cpp
+    assert "int16_t baselineZMg;" in ble_handler_cpp
+    assert "int8_t tiltDeg;" in ble_handler_cpp
+
+    # Sketch threads the new fields from the captured ImpactSample into
+    # pushImpact and announces the derived tilt on serial so the operator
+    # can sanity-check the racket pose without a debugger.
+    assert "impact.baselineXMg," in sketch
+    assert "impact.baselineYMg," in sketch
+    assert "impact.baselineZMg," in sketch
+    assert "impact.tiltDeg" in sketch
+    assert "[ARM] hit=" in sketch
+
+
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():
     sketch = read_text(SKETCH)
     ble_handler_cpp = read_text(BLE_HANDLER_CPP)

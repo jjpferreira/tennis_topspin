@@ -2072,7 +2072,7 @@ class SettingsWindow(QWidget):
 class TennisBleWorker(QObject):
     connected = pyqtSignal(bool, str)
     telemetry = pyqtSignal(int, int, int, int)
-    impact = pyqtSignal(int, int, int, int, int, int, int, int, int)
+    impact = pyqtSignal(int, int, int, int, int, int, int, int, int, int, int, int, int)
     gate_speed = pyqtSignal(int, int, int)
     health = pyqtSignal(dict)
     firmware_info = pyqtSignal(str)
@@ -2582,7 +2582,45 @@ class TennisBleWorker(QObject):
             self.telemetry.emit(-1, -1, -1, v)
 
     def _on_impact(self, _sender, data: bytearray):
-        if len(data) >= 16:
+        # Wire format evolved over time. We accept three forms in order
+        # of preference; the *first 16 bytes* are the legacy contract and
+        # MUST stay parseable so older firmware keeps working.
+        #   v3 (>= 23 bytes): legacy 16 + baseline gravity vector (3x int16
+        #                     mg) + signed racket tilt (int8 deg). Used to
+        #                     replace the simulated "arm_angle" with a
+        #                     real measurement from the ADXL335.
+        #   v2 (>= 16 bytes): legacy contract (no orientation).
+        #   v1 (>= 13 bytes): pre-magnitude legacy. Magnitude is derived
+        #                     from the impact deltas and validity from a
+        #                     non-zero intensity.
+        if len(data) >= 23:
+            (
+                hit_count,
+                x_mg,
+                y_mg,
+                z_mg,
+                mag_mg,
+                intensity,
+                contact_x,
+                contact_y,
+                flags,
+                baseline_x_mg,
+                baseline_y_mg,
+                baseline_z_mg,
+                tilt_deg,
+            ) = struct.unpack("<IhhhHBbbBhhhb", bytes(data[:23]))
+            valid = 1 if (flags & 0x01) else 0
+            self._diag(
+                "impact",
+                f"hits={hit_count} mag={mag_mg}mg intensity={intensity} valid={valid} "
+                f"tilt={tilt_deg}deg gravity_mg=({baseline_x_mg},{baseline_y_mg},{baseline_z_mg})",
+            )
+            self.impact.emit(
+                hit_count, x_mg, y_mg, z_mg, mag_mg, intensity,
+                contact_x, contact_y, valid,
+                baseline_x_mg, baseline_y_mg, baseline_z_mg, int(tilt_deg),
+            )
+        elif len(data) >= 16:
             hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, flags = struct.unpack(
                 "<IhhhHBbbB", bytes(data[:16])
             )
@@ -2591,7 +2629,11 @@ class TennisBleWorker(QObject):
                 "impact",
                 f"hits={hit_count} mag={mag_mg}mg intensity={intensity} valid={valid}",
             )
-            self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
+            self.impact.emit(
+                hit_count, x_mg, y_mg, z_mg, mag_mg, intensity,
+                contact_x, contact_y, valid,
+                0, 0, 0, 0,
+            )
         elif len(data) >= 13:
             hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y = struct.unpack("<IhhhBbb", bytes(data[:13]))
             mag_mg = int(math.sqrt(float(x_mg * x_mg + y_mg * y_mg + z_mg * z_mg)))
@@ -2600,7 +2642,11 @@ class TennisBleWorker(QObject):
                 "impact",
                 f"hits={hit_count} mag={mag_mg}mg intensity={intensity} valid={valid} (legacy13)",
             )
-            self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
+            self.impact.emit(
+                hit_count, x_mg, y_mg, z_mg, mag_mg, intensity,
+                contact_x, contact_y, valid,
+                0, 0, 0, 0,
+            )
 
     def _on_gate_speed(self, _sender, data: bytearray):
         # Surface every gate-speed packet at INFO so the operator can confirm
@@ -2704,6 +2750,13 @@ class TennisDashboard(QMainWindow):
         self._last_impact_reading = (0, 0, 0)
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
+        # Latest accelerometer-derived racket tilt (degrees). Refreshed by
+        # _on_impact_packet whenever an impact frame ships a baseline
+        # gravity vector. Used by the live-shot reconstruction path to
+        # replace the simulated arm_angle with a real measurement.
+        self._last_arm_tilt_deg = 0.0
+        self._last_arm_tilt_ts = 0.0
+        self._last_gravity_baseline_mg: tuple[int, int, int] = (0, 0, 0)
         self._profile_store_path = Path(__file__).resolve().with_name(PROFILE_STORE_FILE)
         self._competition_config_path = Path(__file__).resolve().with_name(COMPETITION_CONFIG_FILE)
         self._profiles: dict[str, list[dict]] = {}
@@ -2906,7 +2959,7 @@ class TennisDashboard(QMainWindow):
         body.addLayout(left_col, 0)
 
         self.left_current = self._panel("CURRENT SHOT")
-        self.ms_speed = MetricSlider("Ball Speed", 10, 120, "mph")
+        self.ms_speed = MetricSlider("Ball Speed", 0, 120, "mph")
         self.ms_angle = MetricSlider("Arm Angle", -90, 90, "°")
         self.ms_spin = MetricSlider("Spin Rate", 0, 4000, "rpm")
         self.left_current.layout().addWidget(self.ms_speed)
@@ -4494,6 +4547,9 @@ class TennisDashboard(QMainWindow):
         self._last_impact_reading = (0, 0, 0)
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
+        self._last_arm_tilt_deg = 0.0
+        self._last_arm_tilt_ts = 0.0
+        self._last_gravity_baseline_mg = (0, 0, 0)
         self._drill_hits = 0
         self._drill_attempts = 0
         self._drill_goal_announced = False
@@ -4689,6 +4745,9 @@ class TennisDashboard(QMainWindow):
         self._last_impact_reading = (0, 0, 0)
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
+        self._last_arm_tilt_deg = 0.0
+        self._last_arm_tilt_ts = 0.0
+        self._last_gravity_baseline_mg = (0, 0, 0)
         self.telemetry.gate_speed_mph = 0.0
         self.telemetry.rpm_x10 = 0
         self.mode = "SIMULATION"
@@ -4792,13 +4851,16 @@ class TennisDashboard(QMainWindow):
             self._last_count_sample_ts = 0.0
             self.btn_connect.setEnabled(True)
             self.btn_connect.setText("CONNECT SENSOR")
-            self._impact_by_hit_count.clear()
-            self._last_impact_reading = (0, 0, 0)
-            self._last_gate_speed_mph = 0.0
-            self._last_gate_speed_ts = 0.0
-            self.telemetry.gate_speed_mph = 0.0
-            self.telemetry.rpm_x10 = 0
-            self.mode_chip.setText("MODE\nSIMULATION")
+        self._impact_by_hit_count.clear()
+        self._last_impact_reading = (0, 0, 0)
+        self._last_gate_speed_mph = 0.0
+        self._last_gate_speed_ts = 0.0
+        self._last_arm_tilt_deg = 0.0
+        self._last_arm_tilt_ts = 0.0
+        self._last_gravity_baseline_mg = (0, 0, 0)
+        self.telemetry.gate_speed_mph = 0.0
+        self.telemetry.rpm_x10 = 0
+        self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
             self.health_chip.setText("SENSOR HEALTH\n— pending")
@@ -5182,12 +5244,31 @@ class TennisDashboard(QMainWindow):
         contact_x: int,
         contact_y: int,
         valid: int,
+        baseline_x_mg: int = 0,
+        baseline_y_mg: int = 0,
+        baseline_z_mg: int = 0,
+        tilt_deg: int = 0,
     ):
         mag_mg = float(magnitude_mg)
         if not valid:
             return
         self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
         self._last_impact_reading = (contact_x, contact_y, intensity)
+        # Stash the latest accelerometer-derived racket tilt so the
+        # count-driven shot reconstruction can use it as a real
+        # `arm_angle` instead of the previous random simulator value.
+        # We only refresh from frames that actually carry orientation
+        # data (legacy 16-byte impacts ship zeros for the baseline
+        # vector, which would otherwise overwrite a good reading).
+        gravity_present = (
+            baseline_x_mg != 0 or baseline_y_mg != 0 or baseline_z_mg != 0
+        )
+        if gravity_present:
+            self._last_arm_tilt_deg = float(tilt_deg)
+            self._last_arm_tilt_ts = time.time()
+            self._last_gravity_baseline_mg = (
+                int(baseline_x_mg), int(baseline_y_mg), int(baseline_z_mg)
+            )
         event = {
             "hit_count": hit_count,
             "x_mg": x_mg,
@@ -5196,6 +5277,10 @@ class TennisDashboard(QMainWindow):
             "mag_mg": mag_mg,
             "intensity": intensity,
             "valid": bool(valid),
+            "baseline_x_mg": baseline_x_mg,
+            "baseline_y_mg": baseline_y_mg,
+            "baseline_z_mg": baseline_z_mg,
+            "tilt_deg": tilt_deg,
         }
         for w in self._hardware_settings_windows():
             w.on_impact_event(event)
@@ -5273,9 +5358,26 @@ class TennisDashboard(QMainWindow):
                     now = time.time()
                     if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:
                         speed = min(prof["live_speed_max"], self._last_gate_speed_mph)
+                    # Prefer the real ADXL335-derived racket tilt when an
+                    # impact frame ships a baseline gravity vector within
+                    # the last ~3 seconds (i.e. on the swing that produced
+                    # this very count). Fall back to the legacy synthetic
+                    # value (random + impact-x bias) only when no real
+                    # orientation has been seen yet, so older firmware
+                    # builds that don't yet ship the gravity baseline keep
+                    # the dashboard usable.
+                    arm_now = time.time()
+                    arm_fresh = (
+                        (arm_now - self._last_arm_tilt_ts) <= 3.0
+                        and self._last_arm_tilt_ts > 0.0
+                    )
+                    if arm_fresh:
+                        arm_raw = float(self._last_arm_tilt_deg)
+                    else:
+                        arm_raw = random.uniform(-18.0, 18.0) + impact_x * 0.34
                     arm = max(
                         -prof["live_arm_abs"],
-                        min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),
+                        min(prof["live_arm_abs"], arm_raw),
                     )
                     spin = int(
                         max(
@@ -5327,8 +5429,26 @@ class TennisDashboard(QMainWindow):
 
     def _refresh_ui(self, force: bool = False):
         latest = self.shots[-1] if self.shots else None
+        # Live speed dial policy:
+        #   * Always prefer a fresh gate-A/B sample (direct physical
+        #     measurement) when one arrived within the last second.
+        #   * Fall back to the last completed shot's speed when the gate
+        #     stream goes quiet, so the dial doesn't snap back to 0 between
+        #     shots.
+        # Without this, the dial only updates on main-hall hits; bench
+        # testing or any session that exercises gates without the main
+        # sensor leaves the dial frozen at the previous shot's value while
+        # gate samples are visibly arriving in the log.
+        now_t = time.time()
+        gate_fresh = (
+            (now_t - self._last_gate_speed_ts) <= 1.0
+            and self._last_gate_speed_mph > 0.0
+        )
         if latest:
-            self.ms_speed.set_value(latest.speed, "#90df6a")
+            slider_speed = (
+                self._last_gate_speed_mph if gate_fresh else latest.speed
+            )
+            self.ms_speed.set_value(slider_speed, "#90df6a")
             self.ms_angle.set_value(latest.arm_angle, "#f7cc32")
             self.ms_spin.set_value(latest.spin, "#4a95ff")
             self.lbl_land_x.setText(f"X (Cross Court)   {latest.landing_x:.2f} m")
@@ -5345,16 +5465,22 @@ class TennisDashboard(QMainWindow):
             self.lbl_net_clearance.setText(f"Net Clearance       {latest.net_clearance_m:.2f} m")
             self.lbl_bounce.setText(f"Post-bounce Kick    {latest.bounce_kick_m:.2f} m ({self._court_surface})")
             self.lbl_target_zone.setText(f"Target Zone         {'HIT' if latest.target_zone_hit else 'MISS'}")
-            gate_speed_text = "--.- mph"
-            if self.telemetry.gate_speed_mph > 0.0:
-                gate_speed_text = f"{self.telemetry.gate_speed_mph:.1f} mph"
+            # Age out the gate-speed text label once the stream goes quiet so
+            # the dashboard doesn't show a stale value forever after the
+            # operator stops sweeping.
+            if gate_fresh:
+                gate_speed_text = f"{self._last_gate_speed_mph:.1f} mph"
+            else:
+                gate_speed_text = "--.- mph"
             self.lbl_gate_speed.setText(f"Gate Speed         {gate_speed_text}")
             self.impact_widget.set_impact(latest.impact_x, latest.impact_y, latest.impact_redness)
         else:
             # No shot reconstructed yet (e.g. waiting for first Gate A/B speed
             # pair). Keep core live telemetry visible so RPM/speed don't look
             # frozen while the stream is active.
-            live_speed = self.telemetry.gate_speed_mph if self.telemetry.gate_speed_mph > 0.0 else 0.0
+            live_speed = (
+                self._last_gate_speed_mph if gate_fresh else 0.0
+            )
             self.ms_speed.set_value(live_speed, "#90df6a")
             self.lbl_impact_xy.setText("Impact Offset      +0, +0")
             self.lbl_impact_red.setText("Impact Redness     0%")

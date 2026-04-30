@@ -72,6 +72,49 @@ uint16_t ADXL335Sensor::getBaselineMagnitudeMg() const {
     return static_cast<uint16_t>(magMg);
 }
 
+void ADXL335Sensor::getBaselineGravityMg(
+    int16_t& xMg, int16_t& yMg, int16_t& zMg
+) const {
+    xMg = 0;
+    yMg = 0;
+    zMg = 0;
+    if (!_baselineEstablished || _calibration.countsPerG <= 0.0f) {
+        return;
+    }
+    constexpr float kMidrail = 2048.0f;
+    const int dxCounts = static_cast<int>(_baselineX - kMidrail);
+    const int dyCounts = static_cast<int>(_baselineY - kMidrail);
+    const int dzCounts = static_cast<int>(_baselineZ - kMidrail);
+    xMg = countsToMg(dxCounts);
+    yMg = countsToMg(dyCounts);
+    zMg = countsToMg(dzCounts);
+}
+
+int8_t ADXL335Sensor::getBaselineTiltDeg() const {
+    int16_t xMg = 0, yMg = 0, zMg = 0;
+    getBaselineGravityMg(xMg, yMg, zMg);
+    // We measure tilt as the angle of the X-axis relative to gravity,
+    // using the (Y, Z) plane as the reference for "vertical". This gives
+    // a signed angle in [-90, 90] that matches how the dashboard's arm-
+    // angle slider is laid out (negative = backhand side, positive =
+    // forehand side, ~0 = racket roughly aligned with gravity-down).
+    //
+    // Mounting note: the host can flip the sign in software if the
+    // sensor is rotated 180 deg on the racket. We avoid baking a flip
+    // into firmware so all calibration stays config-driven.
+    const float yz = sqrtf(
+        static_cast<float>(yMg) * static_cast<float>(yMg) +
+        static_cast<float>(zMg) * static_cast<float>(zMg)
+    );
+    if (yz < 1.0f && xMg == 0) {
+        return 0;
+    }
+    float deg = atan2f(static_cast<float>(xMg), yz) * 180.0f / static_cast<float>(M_PI);
+    if (deg < -90.0f) deg = -90.0f;
+    if (deg >  90.0f) deg =  90.0f;
+    return static_cast<int8_t>(deg);
+}
+
 void ADXL335Sensor::update(uint32_t nowMs) {
     if ((nowMs - _lastSampleMs) < ADXL335_SAMPLE_INTERVAL_MS) {
         return;
@@ -146,6 +189,19 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
         : 0;
     _lastImpact.valid = validImpact;
     _lastImpact.capturedAtMs = nowMs;
+    // Snapshot the gravity vector and derived tilt at impact time. We use
+    // the EWMA baseline rather than the raw peak sample because the peak
+    // is dominated by the impact's kinetic kick and would not reflect the
+    // racket's pose. The baseline lags the swing by ~tens of ms, so this
+    // is effectively the racket's prep/pre-contact pose -- still strictly
+    // better than the random simulator value the dashboard previously
+    // showed for arm angle.
+    getBaselineGravityMg(
+        _lastImpact.baselineXMg,
+        _lastImpact.baselineYMg,
+        _lastImpact.baselineZMg
+    );
+    _lastImpact.tiltDeg = getBaselineTiltDeg();
 }
 
 void ADXL335Sensor::sampleAxes(int& xRaw, int& yRaw, int& zRaw) const {
