@@ -47,9 +47,17 @@ static ImpactCalibration g_impactCalibration = ADXL335Sensor::defaultCalibration
 static float g_gateDistanceCm = KY003_GATE_DISTANCE_CM;
 static uint16_t g_rpmPulsesPerRev = KY003_RPM_PULSES_PER_REV;
 
+// The two gate sensors are physically symmetric: there is no inherent
+// "incoming" side, only the convention that pin 26 is "A" and pin 27 is "B".
+// During hand-magnet bench testing the operator cannot be expected to always
+// sweep in the "A first" direction, and during real shot detection a ball can
+// approach from either side of the court. The speed magnitude is the same
+// regardless of which sensor fires first, so we treat the pair as "first
+// edge" -> "opposite edge" instead of the older asymmetric "start" -> "end".
 struct GateSpeedState {
-    bool awaitingEnd = false;
-    uint32_t startUs = 0;
+    enum class LastEdge : uint8_t { None, A, B };
+    LastEdge armed = LastEdge::None;
+    uint32_t armedUs = 0;
     uint32_t sampleId = 0;
     bool ready = false;
     uint16_t speedKmhX10 = 0;
@@ -135,50 +143,29 @@ static String rpmConfigToText() {
     return out;
 }
 
-static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
-    if (g_gateSpeed.awaitingEnd && (nowUs - g_gateSpeed.startUs) > KY003_GATE_MAX_TRANSIT_US) {
-        Logger::warn(String("[GATE] timeout — pending start at ") + g_gateSpeed.startUs +
-                     "us exceeded max transit " + KY003_GATE_MAX_TRANSIT_US + "us");
-        g_gateSpeed.awaitingEnd = false;
+static const char* gateEdgeName(GateSpeedState::LastEdge edge) {
+    switch (edge) {
+        case GateSpeedState::LastEdge::A: return "A";
+        case GateSpeedState::LastEdge::B: return "B";
+        default: return "none";
     }
-    const bool hadPendingStart = g_gateSpeed.awaitingEnd;
-    const uint32_t pendingStartUs = g_gateSpeed.startUs;
+}
 
-    if (startEdge) {
-        Logger::info(String("[GATE] start edge t=") + nowUs +
-                     "us (pendingBefore=" + (hadPendingStart ? "yes" : "no") + ")");
-        g_gateSpeed.awaitingEnd = true;
-        g_gateSpeed.startUs = nowUs;
-    }
-    if (!endEdge) {
-        return;
-    }
-
-    if (!startEdge && !hadPendingStart) {
-        // End edge fired but we never saw a start — common when the magnet is
-        // first swept B->A. Surface it so the operator can confirm wiring is
-        // alive on B even when the A->B handshake hasn't completed.
-        Logger::warn(String("[GATE] end edge t=") + nowUs +
-                     "us IGNORED — no pending start (sweep direction wrong?)");
-        return;
-    }
-
-    // If both edges are seen in the same loop tick, prefer the previously
-    // pending start edge (from an earlier tick) so we don't drop the sample.
-    uint32_t startUs = g_gateSpeed.startUs;
-    if (startEdge && hadPendingStart) {
-        startUs = pendingStartUs;
-    }
+static void completeGateSample(uint32_t nowUs, GateSpeedState::LastEdge thisEdge) {
+    const auto fromEdge = g_gateSpeed.armed;
+    const uint32_t startUs = g_gateSpeed.armedUs;
+    g_gateSpeed.armed = GateSpeedState::LastEdge::None;
 
     if (nowUs <= startUs) {
-        Logger::warn(String("[GATE] end edge t=") + nowUs +
-                     "us <= startUs " + startUs + "us — clock anomaly, dropping");
+        Logger::warn(String("[GATE] ") + gateEdgeName(thisEdge) +
+                     " edge t=" + nowUs + "us <= armed " + gateEdgeName(fromEdge) +
+                     " t=" + startUs + "us — clock anomaly, dropping");
         return;
     }
-    uint32_t dtUs = nowUs - startUs;
-    g_gateSpeed.awaitingEnd = false;
+    const uint32_t dtUs = nowUs - startUs;
     if (dtUs < KY003_GATE_MIN_TRANSIT_US || dtUs > KY003_GATE_MAX_TRANSIT_US) {
-        Logger::warn(String("[GATE] end edge dt=") + dtUs +
+        Logger::warn(String("[GATE] ") + gateEdgeName(fromEdge) + "->" +
+                     gateEdgeName(thisEdge) + " dt=" + dtUs +
                      "us REJECTED (min=" + KY003_GATE_MIN_TRANSIT_US +
                      "us max=" + KY003_GATE_MAX_TRANSIT_US + "us)");
         return;
@@ -194,8 +181,60 @@ static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
     g_gateSpeed.speedKmhX10 = static_cast<uint16_t>(kmhX10f);
     g_gateSpeed.ready = true;
     Logger::info(String("[GATE] sample #") + g_gateSpeed.sampleId +
+                 " " + gateEdgeName(fromEdge) + "->" + gateEdgeName(thisEdge) +
                  " dt=" + dtUs + "us speedKmhX10=" + g_gateSpeed.speedKmhX10 +
                  " (distance=" + String(g_gateDistanceCm, 2) + "cm)");
+}
+
+static void armGateEdge(uint32_t nowUs, GateSpeedState::LastEdge edge,
+                        const char* reason) {
+    Logger::info(String("[GATE] ") + gateEdgeName(edge) + " edge t=" +
+                 nowUs + "us — " + reason);
+    g_gateSpeed.armed = edge;
+    g_gateSpeed.armedUs = nowUs;
+}
+
+static void updateGateSpeedState(uint32_t nowUs, bool gateAEdge, bool gateBEdge) {
+    if (g_gateSpeed.armed != GateSpeedState::LastEdge::None &&
+        (nowUs - g_gateSpeed.armedUs) > KY003_GATE_MAX_TRANSIT_US) {
+        Logger::warn(String("[GATE] timeout — armed ") +
+                     gateEdgeName(g_gateSpeed.armed) + " at " +
+                     g_gateSpeed.armedUs + "us exceeded max transit " +
+                     KY003_GATE_MAX_TRANSIT_US + "us");
+        g_gateSpeed.armed = GateSpeedState::LastEdge::None;
+    }
+
+    if (gateAEdge && gateBEdge) {
+        // Both edges in the same ~1ms loop tick — physically impossible for a
+        // 3cm gap unless the magnet is huge enough to trigger both sensors at
+        // once, which would yield a meaningless speed. Drop and reset.
+        Logger::warn(String("[GATE] A and B fired in same tick t=") + nowUs +
+                     "us — dropping (sensors too close or magnet too wide?)");
+        g_gateSpeed.armed = GateSpeedState::LastEdge::None;
+        return;
+    }
+
+    if (gateAEdge) {
+        if (g_gateSpeed.armed == GateSpeedState::LastEdge::B) {
+            completeGateSample(nowUs, GateSpeedState::LastEdge::A);
+        } else if (g_gateSpeed.armed == GateSpeedState::LastEdge::A) {
+            armGateEdge(nowUs, GateSpeedState::LastEdge::A, "re-armed (A again)");
+        } else {
+            armGateEdge(nowUs, GateSpeedState::LastEdge::A, "armed (first edge)");
+        }
+        return;
+    }
+
+    if (gateBEdge) {
+        if (g_gateSpeed.armed == GateSpeedState::LastEdge::A) {
+            completeGateSample(nowUs, GateSpeedState::LastEdge::B);
+        } else if (g_gateSpeed.armed == GateSpeedState::LastEdge::B) {
+            armGateEdge(nowUs, GateSpeedState::LastEdge::B, "re-armed (B again)");
+        } else {
+            armGateEdge(nowUs, GateSpeedState::LastEdge::B, "armed (first edge)");
+        }
+        return;
+    }
 }
 
 static void applyImpactCalibration(const ImpactCalibration& cfg) {
@@ -348,10 +387,10 @@ static SensorPipelineResult runSensorPipeline(uint32_t nowMs, uint32_t nowUs) {
                      " count=" + sensor.getHitCount());
     }
     if (gateStartEdge) {
-        Logger::info(String("[HIT] gateStart pin=") + KY003_GATE_START_PIN);
+        Logger::info(String("[HIT] gateA pin=") + KY003_GATE_START_PIN);
     }
     if (gateEndEdge) {
-        Logger::info(String("[HIT] gateEnd   pin=") + KY003_GATE_END_PIN);
+        Logger::info(String("[HIT] gateB pin=") + KY003_GATE_END_PIN);
     }
 
     static uint32_t lastDiagMs = 0;
@@ -388,9 +427,9 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
         g_streamTimeoutWarned = false;
         g_gateSpeed.ready = false;
         // Avoid carrying a partially-armed gate sample across reconnects —
-        // otherwise the next end-gate edge could be paired with a long-stale
-        // start time and produce a junk speed.
-        g_gateSpeed.awaitingEnd = false;
+        // otherwise the next opposite edge could be paired with a long-stale
+        // armed time and produce a junk speed.
+        g_gateSpeed.armed = GateSpeedState::LastEdge::None;
         return;
     }
     if (!s_wasConnected) {

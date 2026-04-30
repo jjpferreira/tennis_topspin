@@ -385,19 +385,29 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "gateEndSensor.begin();" in sketch
     assert "static_cast<uint16_t>(KY003_GATE_DEBOUNCE_MS)" in sketch
     assert "updateGateSpeedState(nowUs, gateStartEdge, gateEndEdge);" in sketch
-    assert "const bool hadPendingStart = g_gateSpeed.awaitingEnd;" in sketch
-    assert "if (startEdge && hadPendingStart)" in sketch
+    # Bidirectional gate handshake: either A or B may fire first. The previous
+    # asymmetric "start"/"end" model dropped every B->A magnet sweep on the
+    # bench (the sample id stayed at 0 even though both gates were ticking up
+    # in HEALTH), which is exactly the bug we are guarding against here.
+    assert "enum class LastEdge : uint8_t { None, A, B };" in sketch
+    assert "completeGateSample(nowUs, GateSpeedState::LastEdge::A);" in sketch
+    assert "completeGateSample(nowUs, GateSpeedState::LastEdge::B);" in sketch
+    assert "armGateEdge(nowUs, GateSpeedState::LastEdge::A," in sketch
+    assert "armGateEdge(nowUs, GateSpeedState::LastEdge::B," in sketch
     assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitUs);" in sketch
     # Diagnostic logs must remain so we can see why a gate sample fails when
     # the magnet sweep is reportedly working but no speed packet arrives.
-    assert "[GATE] start edge t=" in sketch
     assert "[GATE] sample #" in sketch
-    assert "[GATE] end edge dt=" in sketch
     assert "[GATE] timeout" in sketch
-    assert "IGNORED — no pending start" in sketch
+    assert "armed (first edge)" in sketch
     assert "[GATE-PUB] BLE notify sample #" in sketch
+    # Per-edge serial markers now consistently use the same A/B labels that
+    # show up in HEALTH and in the BLE gate-speed sample log, so an operator
+    # can correlate hits, edges, and samples without translating names.
+    assert "[HIT] gateA pin=" in sketch
+    assert "[HIT] gateB pin=" in sketch
     # Reconnect-safety: do not let a stale armed start leak across sessions.
-    assert "g_gateSpeed.awaitingEnd = false;" in sketch
+    assert "g_gateSpeed.armed = GateSpeedState::LastEdge::None;" in sketch
     assert "impact.magnitudeMg," in sketch
     assert "impact.valid" in sketch
 
