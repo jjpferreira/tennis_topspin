@@ -2757,6 +2757,24 @@ class TennisDashboard(QMainWindow):
         self._last_arm_tilt_deg = 0.0
         self._last_arm_tilt_ts = 0.0
         self._last_gravity_baseline_mg: tuple[int, int, int] = (0, 0, 0)
+        # Which 2D projection of the gravity vector to use for arm tilt.
+        # Tennis players have wildly different sensor mounts -- on the
+        # racket frame, on the wrist, on the bicep -- and only one
+        # projection of (gx, gy, gz) carries the forehand/backhand
+        # signal. Default `yz` is right for a forearm/wrist mount where
+        # X runs along the forearm and we want the *roll* around it.
+        # Override with TENNIS_ARM_AXIS=xy / xz / yz / zy / yx / zx
+        # if your mount differs; flip the sign by prepending a `-`,
+        # e.g. TENNIS_ARM_AXIS=-yz.
+        raw_axis = os.getenv("TENNIS_ARM_AXIS", "yz").strip().lower()
+        sign = -1.0 if raw_axis.startswith("-") else 1.0
+        axis = raw_axis.lstrip("-")
+        if axis not in {"xy", "xz", "yz", "yx", "zy", "zx"}:
+            axis = "yz"
+            sign = 1.0
+        self._arm_tilt_axis = ("-" if sign < 0 else "") + axis
+        self._arm_tilt_axis_pair = axis
+        self._arm_tilt_sign = sign
         self._profile_store_path = Path(__file__).resolve().with_name(PROFILE_STORE_FILE)
         self._competition_config_path = Path(__file__).resolve().with_name(COMPETITION_CONFIG_FILE)
         self._profiles: dict[str, list[dict]] = {}
@@ -2959,7 +2977,26 @@ class TennisDashboard(QMainWindow):
         body.addLayout(left_col, 0)
 
         self.left_current = self._panel("CURRENT SHOT")
-        self.ms_speed = MetricSlider("Ball Speed", 0, 120, "mph")
+        # Ball Speed dial range. Real shots cover 30-120 mph so the
+        # default scale is 0-120. For bench testing (manual gate sweeps
+        # at 1-5 mph) the dot would otherwise sit invisibly close to the
+        # left edge -- toggle TENNIS_BENCH_MODE=1 to switch the dial to
+        # 0-40 mph and make hand-sweep speeds clearly visible. The flag
+        # is environment-driven so it doesn't touch the saved profile.
+        bench_mode = os.getenv("TENNIS_BENCH_MODE") == "1"
+        speed_max_mph = 40.0 if bench_mode else 120.0
+        self.ms_speed = MetricSlider("Ball Speed", 0, speed_max_mph, "mph")
+        log.info(
+            "Ball Speed dial scale: 0-%g mph (TENNIS_BENCH_MODE=%s)",
+            speed_max_mph,
+            "1 (bench)" if bench_mode else "0 (live)",
+        )
+        log.info(
+            "Arm tilt projection: TENNIS_ARM_AXIS=%s (default 'yz' is for a "
+            "forearm/wrist mount; use 'xy'/'xz' for a racket-frame mount, "
+            "prepend '-' to flip sign)",
+            self._arm_tilt_axis,
+        )
         self.ms_angle = MetricSlider("Arm Angle", -90, 90, "°")
         self.ms_spin = MetricSlider("Spin Rate", 0, 4000, "rpm")
         self.left_current.layout().addWidget(self.ms_speed)
@@ -5233,6 +5270,33 @@ class TennisDashboard(QMainWindow):
         if self._health_popup is not None and self._health_popup.isVisible():
             self._refresh_health_popup()
 
+    def _derive_arm_tilt_deg(self, gx_mg: int, gy_mg: int, gz_mg: int) -> float:
+        """Project the resting gravity vector onto the configured axis pair
+        and return a signed tilt in degrees, clamped to [-90, +90].
+
+        We use atan2 of the two named components so the angle has an
+        unambiguous sign and the result encodes a single rotation -- the
+        one the user's mount actually exposes. For a forearm/wrist mount
+        with X along the forearm, `yz` (atan2(gy, gz)) gives the roll
+        that distinguishes forehand from backhand; for a racket-frame
+        mount with X along the handle, `xy` or `xz` is more natural.
+        """
+        axis_to_components = {
+            "xy": (gx_mg, gy_mg),
+            "xz": (gx_mg, gz_mg),
+            "yz": (gy_mg, gz_mg),
+            "yx": (gy_mg, gx_mg),
+            "zy": (gz_mg, gy_mg),
+            "zx": (gz_mg, gx_mg),
+        }
+        a, b = axis_to_components.get(self._arm_tilt_axis_pair, (gy_mg, gz_mg))
+        deg = math.degrees(math.atan2(float(a), float(b))) * self._arm_tilt_sign
+        if deg > 90.0:
+            deg = 90.0
+        elif deg < -90.0:
+            deg = -90.0
+        return deg
+
     def _on_impact_packet(
         self,
         hit_count: int,
@@ -5250,25 +5314,59 @@ class TennisDashboard(QMainWindow):
         tilt_deg: int = 0,
     ):
         mag_mg = float(magnitude_mg)
-        if not valid:
-            return
-        self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
-        self._last_impact_reading = (contact_x, contact_y, intensity)
-        # Stash the latest accelerometer-derived racket tilt so the
-        # count-driven shot reconstruction can use it as a real
-        # `arm_angle` instead of the previous random simulator value.
-        # We only refresh from frames that actually carry orientation
-        # data (legacy 16-byte impacts ship zeros for the baseline
-        # vector, which would otherwise overwrite a good reading).
+        # Refresh the latest accelerometer-derived racket tilt FIRST and
+        # independently of the impact's validity. The gravity baseline
+        # is just the racket's resting orientation -- it is meaningful
+        # whether or not the z-spike was strong enough to count as a
+        # real impact, and we need it for arm-angle even on weak/bench
+        # taps. We still gate on `gravity_present` so legacy 16-byte
+        # frames (which ship zeros) don't overwrite a good reading.
         gravity_present = (
             baseline_x_mg != 0 or baseline_y_mg != 0 or baseline_z_mg != 0
         )
         if gravity_present:
-            self._last_arm_tilt_deg = float(tilt_deg)
+            # Derive the tilt on the host instead of trusting the firmware's
+            # `tilt_deg`. The firmware computes atan2(gx, sqrt(gy^2+gz^2))
+            # which is the X-axis elevation -- great for a racket-frame
+            # mount where X runs along the racket handle, but USELESS for
+            # a forearm-mounted sensor: forehand and backhand prep keep
+            # the forearm at the same elevation, so that formula gives a
+            # constant value (~-45 deg in the wild) and the dashboard's
+            # arm slider never moves.
+            #
+            # The real signal that distinguishes forehand from backhand on
+            # an arm mount is the *roll* around the forearm axis -- which
+            # is the angle in the YZ plane: atan2(gy, gz). We make it
+            # configurable via TENNIS_ARM_AXIS so anyone with a different
+            # mount can pick the projection that varies with their swing
+            # without a reflash.
+            tilt = self._derive_arm_tilt_deg(
+                int(baseline_x_mg), int(baseline_y_mg), int(baseline_z_mg)
+            )
+            self._last_arm_tilt_deg = tilt
             self._last_arm_tilt_ts = time.time()
             self._last_gravity_baseline_mg = (
                 int(baseline_x_mg), int(baseline_y_mg), int(baseline_z_mg)
             )
+            ble_log.info(
+                "ARM-TILT hit=%d host_tilt=%.1fdeg fw_tilt=%ddeg "
+                "gravity_mg=(%d,%d,%d) axis=%s valid=%d",
+                int(hit_count),
+                tilt,
+                int(tilt_deg),
+                int(baseline_x_mg),
+                int(baseline_y_mg),
+                int(baseline_z_mg),
+                self._arm_tilt_axis,
+                int(valid),
+            )
+        if not valid:
+            # Don't book-keep impact-x/y for a frame the firmware itself
+            # said wasn't a real impact -- those bytes will be zero. The
+            # tilt above is already saved.
+            return
+        self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
+        self._last_impact_reading = (contact_x, contact_y, intensity)
         event = {
             "hit_count": hit_count,
             "x_mg": x_mg,

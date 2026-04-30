@@ -298,6 +298,113 @@ def test_impact_signal_carries_orientation_fields():
     ) in src
 
 
+def test_arm_tilt_derived_on_host_with_configurable_axis_projection():
+    """Regression guard: the host MUST derive arm tilt from the raw
+    gravity baseline using a configurable 2D projection, not just trust
+    the firmware's atan2(gx, sqrt(gy^2+gz^2)) value.
+
+    The firmware formula gives a constant ~-45 deg for a forearm/wrist
+    mount because forehand and backhand prep keep the forearm at the
+    same elevation; the swing-direction signal lives in the YZ-plane
+    roll instead. Without this fix, the dashboard's arm-angle slider
+    pegs at -45 deg and never moves -- exactly the symptom reported
+    during bench bring-up.
+    """
+    src = read_app()
+
+    # Helper exists, supports six axis pairs and a sign flip.
+    helper = re.search(
+        r"def _derive_arm_tilt_deg\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert helper, "_derive_arm_tilt_deg block not found"
+    body = helper.group(0)
+    assert '"yz"' in body
+    assert '"xy"' in body
+    assert '"xz"' in body
+    assert "math.degrees(math.atan2(float(a), float(b)))" in body
+    assert "self._arm_tilt_sign" in body
+    # Saturated to [-90, 90] so it stays inside the slider range.
+    assert "deg = 90.0" in body
+    assert "deg = -90.0" in body
+
+    # Env-var driven configuration with a sensible default.
+    assert 'os.getenv("TENNIS_ARM_AXIS", "yz")' in src
+
+    # _on_impact_packet uses the host-derived value, not the firmware's
+    # `tilt_deg`.
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    pbody = pkt.group(0)
+    assert "tilt = self._derive_arm_tilt_deg(" in pbody
+    assert "self._last_arm_tilt_deg = tilt" in pbody
+    # The firmware's tilt_deg is logged for diagnostic comparison but
+    # not used as the canonical value.
+    assert "ARM-TILT hit=" in pbody
+    assert "fw_tilt=%ddeg" in pbody
+
+
+def test_arm_tilt_refreshes_from_gravity_baseline_even_when_impact_invalid():
+    """Regression guard: the racket-tilt update must NOT depend on the
+    impact's `valid` flag.
+
+    The accelerometer reports a baseline gravity vector continuously --
+    that's the racket's pose at rest -- and it's meaningful even when
+    the z-spike on a swing is too weak to register as a valid impact.
+    Bench-test users with a misconfigured ADXL335 (e.g. floating axis
+    pin reading ~3700 mg instead of ~1000 mg) would otherwise see zero
+    impact frames at all, leaving the arm-angle slider permanently on
+    the simulator value. The fix is to refresh tilt FIRST, then early-
+    return on `not valid` only for the impact-x/y bookkeeping.
+    """
+    src = read_app()
+
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    body = pkt.group(0)
+
+    # The order matters: gravity refresh must come BEFORE the validity
+    # short-circuit. We verify by character offset.
+    gravity_idx = body.index("if gravity_present:")
+    invalid_idx = body.index("if not valid:")
+    assert gravity_idx < invalid_idx, (
+        "Tilt refresh from the gravity baseline must happen BEFORE the "
+        "`if not valid: return` early-out, otherwise weak/invalid impacts "
+        "(common on a misconfigured ADXL335) silently drop arm-angle data."
+    )
+
+    # And we still skip impact-x/y bookkeeping on invalid frames.
+    assert "self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)" in body
+
+
+def test_ball_speed_slider_supports_bench_mode_flag():
+    """Regression guard: TENNIS_BENCH_MODE=1 must shrink the speed dial
+    range to 0-40 mph so manual hand sweeps at 1-5 mph are visible.
+
+    Without this, the dot for a 3 mph hand-sweep sample sits at 2.5%
+    of the dial width on the default 0-120 mph scale -- visually
+    indistinguishable from "not moving" -- which is exactly the
+    "data in logs but not on the slider" bug we already shipped a
+    speed-dial fix for.
+    """
+    src = read_app()
+    assert 'os.getenv("TENNIS_BENCH_MODE") == "1"' in src
+    assert "speed_max_mph = 40.0" in src
+    assert (
+        'self.ms_speed = MetricSlider("Ball Speed", 0, speed_max_mph, "mph")'
+        in src
+    )
+
+
 def test_live_arm_angle_uses_measured_tilt_when_fresh():
     """Regression guard: the count-driven shot reconstruction must prefer
     the latest ADXL335-derived racket tilt over the legacy random
@@ -324,7 +431,9 @@ def test_live_arm_angle_uses_measured_tilt_when_fresh():
     assert pkt, "_on_impact_packet block not found"
     pkt_body = pkt.group(0)
     assert "tilt_deg: int = 0," in pkt_body
-    assert "self._last_arm_tilt_deg = float(tilt_deg)" in pkt_body
+    # The host derives the canonical tilt from the raw gravity baseline
+    # (so the projection is configurable without a reflash).
+    assert "self._last_arm_tilt_deg = tilt" in pkt_body
     assert "if gravity_present:" in pkt_body
 
     # Live shot path prefers the measured tilt when fresh.

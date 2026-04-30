@@ -472,10 +472,19 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
 
     if (sensorResult.impactEdge) {
         ImpactSample impact = impactSensor.getLastImpact();
-        if (!impact.valid) {
-            return;
-        }
-
+        // We ship the frame even when the accelerometer didn't see a strong
+        // enough z-spike to call this a valid impact. The `valid` flag is
+        // honored on the host: the impact x/y/z deltas are zeroed in
+        // captureImpact() when invalid, but the gravity *baseline* is
+        // independent of the spike and is what the host needs to derive
+        // racket tilt / arm angle. Skipping pushImpact here was the reason
+        // the dashboard's arm-angle slider stayed flat for users whose
+        // ADXL335 had a busted baseline (e.g. a floating axis pin reading
+        // ~3700 mg instead of ~1000 mg) -- valid impacts never landed, so
+        // no orientation ever shipped. Now every main-hall hit carries the
+        // current pose, and a misconfigured accelerometer just means the
+        // x/y impact bits are zero rather than the whole frame being
+        // suppressed.
         bleHandler.pushImpact(
             sensor.getHitCount(),
             impact.xMg,
@@ -495,7 +504,8 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
             String("[ARM] hit=") + sensor.getHitCount() +
             " tilt=" + impact.tiltDeg + " deg" +
             " gravity_mg=(" + impact.baselineXMg + "," + impact.baselineYMg +
-            "," + impact.baselineZMg + ")"
+            "," + impact.baselineZMg + ")" +
+            " valid=" + (impact.valid ? "1" : "0")
         );
     }
 }
@@ -598,6 +608,32 @@ void setup() {
     gateStartSensor.begin();
     gateEndSensor.begin();
     impactSensor.begin();
+    // Health gate for the ADXL335: at rest the gravity vector should be
+    // about 1 g (~1000 mg). Anything well outside the 700-1300 mg band
+    // means a pin is floating, the sensor is on 5 V instead of 3.3 V, or
+    // it's not present at all -- and that silently disables the entire
+    // arm-angle / impact pipeline because every captured impact fails
+    // validity. We surface it loudly at boot so the operator notices
+    // before spending hours wondering why the dashboard never updates.
+    {
+        const uint16_t baselineMg = impactSensor.getBaselineMagnitudeMg();
+        int16_t bx = 0, by = 0, bz = 0;
+        impactSensor.getBaselineGravityMg(bx, by, bz);
+        if (baselineMg < 700 || baselineMg > 1300) {
+            Logger::warn(
+                String("[ADXL] baseline UNHEALTHY: ") + baselineMg +
+                " mg (expected ~1000 mg). Check wiring/power on X(" +
+                ADXL335_X_PIN + ") Y(" + ADXL335_Y_PIN + ") Z(" +
+                ADXL335_Z_PIN + "). Arm-angle data will be wrong until "
+                "this reads 700-1300 mg at rest."
+            );
+        } else {
+            Logger::info(
+                String("[ADXL] baseline OK: ") + baselineMg +
+                " mg gravity=(" + bx + "," + by + "," + bz + ") mg"
+            );
+        }
+    }
 #if LED_RING_ENABLED
     ledHandler.begin();
 #endif

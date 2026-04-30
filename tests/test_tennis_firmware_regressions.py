@@ -481,6 +481,20 @@ def test_tennis_firmware_impact_payload_carries_baseline_gravity_and_tilt():
     assert "impact.tiltDeg" in sketch
     assert "[ARM] hit=" in sketch
 
+    # Orientation must ship on EVERY main-hall hit, not only on a valid
+    # accelerometer impact. A misconfigured ADXL335 (floating axis pin
+    # reading ~3700 mg instead of ~1000 mg) would otherwise leave the
+    # dashboard's arm-angle slider permanently on the simulator value.
+    # The previous `if (!impact.valid) return;` early-out is gone; the
+    # `valid` flag is still honored on the host so impact x/y stays
+    # zeroed for invalid frames.
+    assert "if (!impact.valid) {\n            return;" not in sketch
+    # Boot-time health gate: warn loudly when the resting baseline is
+    # outside 700-1300 mg, which is the smoking-gun symptom of a wiring
+    # / power problem on the accelerometer.
+    assert "[ADXL] baseline UNHEALTHY:" in sketch
+    assert "[ADXL] baseline OK:" in sketch
+
 
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():
     sketch = read_text(SKETCH)
