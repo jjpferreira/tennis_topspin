@@ -213,6 +213,7 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "#define KY003_GATE_MIN_TRANSIT_US 500u" in config_h
     assert "#define KY003_GATE_MAX_TRANSIT_US 250000u" in config_h
     assert "#define KY003_RPM_PULSES_PER_REV 1u" in config_h
+    assert "#define KY003_RPM_FRESHNESS_MS 2500u" in config_h
 
     assert "pinMode(_pin, _inputPullup ? INPUT_PULLUP : INPUT);" in sensor_cpp
     assert "digitalRead(_pin)" in sensor_cpp
@@ -269,7 +270,8 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "ImpactCalibration g_impactCalibration" in sketch
     assert "CalibrationStore::loadImpactCalibration" in sketch
     assert "CalibrationStore::loadRuntimeConfig(g_gateDistanceCm, g_rpmPulsesPerRev)" in sketch
-    assert "sensor.getInstantRpmX10(nowMs, g_rpmPulsesPerRev)" in sketch
+    assert "sensor.getInstantRpmX10(" in sketch
+    assert "KY003_RPM_FRESHNESS_MS" in sketch
     assert "if (cmd == \"GATE:GET\")" in sketch
     assert "if (cmd.startsWith(\"GATE:SET:\"))" in sketch
     assert "if (cmd == \"RPM:GET\")" in sketch

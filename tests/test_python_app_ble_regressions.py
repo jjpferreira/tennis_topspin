@@ -75,9 +75,9 @@ def test_live_speed_prefers_gate_packets_with_count_based_shot_append():
         flags=re.S,
     )
     assert telemetry_fn, "_on_telemetry block not found"
-    # Live shot reconstruction remains count-driven, but speed must come from
-    # fresh gate A/B data only (no synthetic fallback tied to RPM/rate).
+    # Live shot reconstruction remains count-driven; gate A/B speed should be
+    # preferred when fresh, with model fallback when gate is missing/stale.
     assert "self._append_shot(" in telemetry_fn.group(0)
     assert "self._last_gate_speed_mph" in telemetry_fn.group(0)
-    assert "if (now - self._last_gate_speed_ts) > 0.90 or self._last_gate_speed_mph <= 0.1:" in telemetry_fn.group(0)
-    assert "continue" in telemetry_fn.group(0)
+    assert "model_speed = max(" in telemetry_fn.group(0)
+    assert "if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:" in telemetry_fn.group(0)

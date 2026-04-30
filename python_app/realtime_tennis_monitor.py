@@ -5187,18 +5187,29 @@ class TennisDashboard(QMainWindow):
                     impact_x, impact_y, redness = impact
                     prof = self._current_competition_profile()
                     rate = self.telemetry.rate_x10 / 10.0
-                    # LIVE speed must come from Gate A/B only. This keeps RPM
-                    # independent so a main hall pulse cannot mutate ball speed.
-                    now = time.time()
-                    if (now - self._last_gate_speed_ts) > 0.90 or self._last_gate_speed_mph <= 0.1:
-                        continue
-                    speed = max(
+                    model_speed = max(
                         prof["live_speed_min"],
                         min(
                             prof["live_speed_max"],
-                            self._last_gate_speed_mph,
+                            prof["live_speed_base"]
+                            + rate * prof["live_rate_mul"]
+                            + (redness * prof["live_red_mul"])
+                            + random.uniform(-2.0, 2.0),
                         ),
                     )
+                    # Prefer gate A/B speed when fresh. Fall back to model speed
+                    # so the basic main hall RPM/count path remains visible even
+                    # when gate characteristics are unavailable.
+                    speed = model_speed
+                    now = time.time()
+                    if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:
+                        speed = max(
+                            prof["live_speed_min"],
+                            min(
+                                prof["live_speed_max"],
+                                self._last_gate_speed_mph,
+                            ),
+                        )
                     arm = max(
                         -prof["live_arm_abs"],
                         min(prof["live_arm_abs"], random.uniform(-18.0, 18.0) + impact_x * 0.34),
