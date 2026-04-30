@@ -78,6 +78,39 @@ def test_tennis_firmware_info_string_is_emitted_on_serial_at_boot_and_periodical
     assert "[FW]" in sketch, "Periodic firmware heartbeat must use [FW] tag"
 
 
+def test_tennis_ble_service_reserves_enough_gatt_handles():
+    """ESP32 Arduino BLE silently drops characteristics past handle 15 because
+    BLEServer::createService(uuid) defaults to numHandles=15. With 8 notify
+    chars (each consuming 3 handles via CCCD) plus 1 read-only fw-version
+    char, we need an explicit, generously-sized handle budget. This test
+    pins the explicit createService overload so the bug can't regress
+    silently if someone adds another characteristic."""
+    ble_handler_cpp = read_text(BLE_HANDLER_CPP)
+
+    # The buggy form (single-arg createService) MUST NOT be present anymore.
+    assert "createService(TENNIS_SERVICE_UUID)" not in ble_handler_cpp, (
+        "BLEServer::createService(uuid) defaults to numHandles=15 and silently "
+        "drops characteristics past that. Use the explicit "
+        "createService(BLEUUID(...), numHandles, instanceId) form instead."
+    )
+
+    pattern = re.compile(
+        r"createService\(\s*BLEUUID\(\s*TENNIS_SERVICE_UUID\s*\)\s*,\s*(\d+)\s*,\s*0\s*\)"
+    )
+    match = pattern.search(ble_handler_cpp)
+    assert match, (
+        "BLE service must be created via the explicit handle-budget overload: "
+        "createService(BLEUUID(TENNIS_SERVICE_UUID), <numHandles>, 0)"
+    )
+    num_handles = int(match.group(1))
+    # 1 service + 8 notify chars (3 handles each) + 1 read-only char (2 handles)
+    # = 27 handles minimum. Anything below 28 is at risk if we add metadata.
+    assert num_handles >= 28, (
+        f"GATT handle budget {num_handles} is too small for the current "
+        "9-characteristic profile (need >=28 handles)."
+    )
+
+
 def test_tennis_ble_profile_is_self_described_on_serial():
     """The firmware must announce its own GATT profile on Serial so the
     operator can prove (without macOS in the loop) that the running build

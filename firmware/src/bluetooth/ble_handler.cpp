@@ -55,7 +55,15 @@ void BLEHandler::begin() {
     _server = BLEDevice::createServer();
     _server->setCallbacks(new TennisServerCallbacks());
 
-    _service = _server->createService(TENNIS_SERVICE_UUID);
+    // CRITICAL: BLEServer::createService(uuid) defaults to numHandles=15, which
+    // is exactly enough for a service + 5 notify characteristics (each notify
+    // char consumes 3 handles: declaration + value + CCCD). Beyond that the
+    // ESP32 Arduino BLE library SILENTLY DROPS characteristics — the very bug
+    // that produced the 5-char fingerprint (state/count/rate/rpm/impact) on
+    // the dashboard. We expose 9 chars (8 with notify CCCD, 1 read-only), so
+    // we need a comfortable headroom (~32 handles) to avoid running into the
+    // limit again as the profile grows.
+    _service = _server->createService(BLEUUID(TENNIS_SERVICE_UUID), 32, 0);
     setupCharacteristics();
     _service->start();
     setupAdvertising();
