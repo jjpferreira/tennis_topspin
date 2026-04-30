@@ -125,6 +125,8 @@ from PyQt6.QtWidgets import (
 
 # BLE UUIDs (must match firmware)
 TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914d"  # advertised; ble_constants.h
+LEGACY_TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914c"
+TENNIS_SERVICE_UUIDS = (TENNIS_SERVICE_UUID, LEGACY_TENNIS_SERVICE_UUID)
 SENSOR_STATE_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a1"
 HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
@@ -256,8 +258,8 @@ def _norm_uuid(u: str) -> str:
 def _adv_has_tennis_service(adv: AdvertisementData | None) -> bool:
     if not adv or not adv.service_uuids:
         return False
-    want = _norm_uuid(TENNIS_SERVICE_UUID)
-    return any(_norm_uuid(x) == want for x in adv.service_uuids)
+    wants = {_norm_uuid(x) for x in TENNIS_SERVICE_UUIDS}
+    return any(_norm_uuid(x) in wants for x in adv.service_uuids)
 
 
 def _device_local_name(device: BLEDevice, adv: AdvertisementData | None) -> str | None:
@@ -2137,8 +2139,10 @@ class TennisBleWorker(QObject):
         # IMPORTANT: enumerate all characteristics across all services. Do NOT
         # break early — _available_char_uuids feeds health/feature detection
         # for the entire connection.
+        accepted_service_uuids = {u.lower() for u in TENNIS_SERVICE_UUIDS}
         for service in services:
-            if service.uuid.lower() == TENNIS_SERVICE_UUID.lower():
+            service_uuid = service.uuid.lower()
+            if service_uuid in accepted_service_uuids:
                 tennis_service_seen = True
             for ch in service.characteristics:
                 self._available_char_uuids.add(ch.uuid.lower())
@@ -2147,13 +2151,9 @@ class TennisBleWorker(QObject):
                 _ = self._has_prop(props, "notify")
                 if ch.uuid.lower() == COMMAND_UUID.lower():
                     command_exact = ch
-                if (
-                    service.uuid.lower() == TENNIS_SERVICE_UUID.lower()
-                    and is_writable
-                    and writable_fallback is None
-                ):
+                if service_uuid in accepted_service_uuids and is_writable and writable_fallback is None:
                     writable_fallback = ch
-                if service.uuid.lower() == TENNIS_SERVICE_UUID.lower() and is_writable:
+                if service_uuid in accepted_service_uuids and is_writable:
                     tennis_writable_uuids.append(ch.uuid)
 
         selected = command_exact or writable_fallback
@@ -2242,14 +2242,11 @@ class TennisBleWorker(QObject):
                     continue
                 self._target_address = device.address
                 self.status.emit(f"Connecting to {device.name} ({device.address})")
-                # Pass the service UUID hint when the Bleak version supports
-                # it. On some macOS Bleak builds this causes CoreBluetooth to
-                # specifically request the tennis service rather than relying
-                # on the cached service list.
-                try:
-                    self._client = BleakClient(device, services=[TENNIS_SERVICE_UUID])
-                except TypeError:
-                    self._client = BleakClient(device)
+                # Avoid a strict service hint here: when the firmware and app
+                # are briefly on different service UUID revisions, CoreBluetooth
+                # may return an empty GATT table (0 characteristics) and cause
+                # reconnect loops even though telemetry is available.
+                self._client = BleakClient(device)
                 await self._client.connect()
                 await self._resolve_command_characteristics()
                 # If we ended up with materially fewer characteristics than
@@ -2258,9 +2255,7 @@ class TennisBleWorker(QObject):
                 # destabilise things) — instead we surface a clear in-app
                 # banner and a one-click "Refresh BLE link" recovery button.
                 discovered_count = len(self._available_char_uuids)
-                cache_looks_stale = (
-                    0 < discovered_count < self._EXPECTED_MIN_CHARACTERISTICS
-                )
+                cache_looks_stale = discovered_count < self._EXPECTED_MIN_CHARACTERISTICS
                 legacy_profile_detected = (
                     self._available_char_uuids == LEGACY_FIVE_CHAR_UUIDS
                 )
@@ -2455,7 +2450,7 @@ class TennisBleWorker(QObject):
         filtered = await BleakScanner.discover(
             timeout=BLE_DISCOVER_TIMEOUT_S,
             return_adv=True,
-            service_uuids=[TENNIS_SERVICE_UUID],
+            service_uuids=list(TENNIS_SERVICE_UUIDS),
         )
         picked = _pick_with_lock(filtered)
         if picked:
