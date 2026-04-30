@@ -30,7 +30,11 @@ from __future__ import annotations
 # Update both this value AND firmware/include/config.h::KY003_GATE_DISTANCE_CM
 # whenever the physical rig changes. Speed = distance / transit_time; getting
 # this wrong scales every recorded shot speed by the same factor.
-GATE_DISTANCE_CM: float = 1.0
+#
+# At 4.3 cm spacing the firmware's 500 us min-transit guard caps measurable
+# speed at ~310 km/h, which leaves plenty of headroom for serves. The
+# previous 1.0 cm rig silently dropped anything faster than 72 km/h.
+GATE_DISTANCE_CM: float = 4.3
 
 
 # Default RPM pulses-per-revolution for the main hall sensor. Mirrors

@@ -17,6 +17,17 @@ public:
     bool update(uint32_t nowMs);
     void reset();
 
+    // Returns true exactly ONCE per raw signal transition that *will*
+    // count as an edge once it survives debounce. Use this to fire
+    // time-critical, debounce-independent side-effects (eg. the
+    // ADXL335 captureImpact burst) at the very instant the magnet
+    // first crosses the sensor, instead of waiting `_debounceMs`
+    // for the signal to stabilise. The hit *counter* still uses
+    // update()'s debounced edge -- this probe is purely a "what
+    // just changed in the raw signal" trigger. The flag latches
+    // across the debounce window and is consumed on read.
+    bool consumeRawEdge();
+
     uint8_t getState() const { return _stableState; }
     uint32_t getHitCount() const { return _hitCount; }
     uint32_t getLastEdgeMs() const { return _edgeSize > 0 ? _lastEdgeMs : 0; }
@@ -41,6 +52,12 @@ private:
     uint8_t _rawLast = 1;
     uint32_t _rawChangedAt = 0;
     uint32_t _hitCount = 0;
+    // Latch set when the raw signal first transitions in the
+    // direction we count (eg. falling for `_countOnFallingEdge`).
+    // Cleared by `consumeRawEdge()`. Used to trigger the ADXL335
+    // burst at the actual contact instant rather than ~8 ms later
+    // when the debounced edge fires.
+    bool _rawEdgePending = false;
 
     uint32_t _edgeTimes[KY003_EDGE_HISTORY_LEN] = {};
     size_t _edgeHead = 0;

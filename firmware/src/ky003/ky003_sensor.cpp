@@ -23,6 +23,17 @@ void KY003Sensor::begin() {
 bool KY003Sensor::update(uint32_t nowMs) {
     uint8_t raw = static_cast<uint8_t>(digitalRead(_pin));
     if (raw != _rawLast) {
+        // Latch the raw transition for `consumeRawEdge()` so that
+        // time-critical consumers (the ADXL335 impact burst) can
+        // fire at the instant the magnet first crosses the sensor,
+        // not 8 ms later once the signal has been debounced. We only
+        // latch in the count direction (falling-edge for the main
+        // hall sensor, rising for inverted wiring); a transition the
+        // other way is the magnet leaving and is irrelevant for
+        // impact capture.
+        if (shouldCountEdge(_rawLast, raw)) {
+            _rawEdgePending = true;
+        }
         _rawLast = raw;
         _rawChangedAt = nowMs;
         return false;
@@ -40,10 +51,19 @@ bool KY003Sensor::update(uint32_t nowMs) {
     return false;
 }
 
+bool KY003Sensor::consumeRawEdge() {
+    if (!_rawEdgePending) {
+        return false;
+    }
+    _rawEdgePending = false;
+    return true;
+}
+
 void KY003Sensor::reset() {
     _hitCount = 0;
     _edgeHead = 0;
     _edgeSize = 0;
+    _rawEdgePending = false;
 }
 
 uint16_t KY003Sensor::getRateX10(uint32_t nowMs) const {

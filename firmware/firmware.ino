@@ -404,7 +404,16 @@ static SensorPipelineResult runSensorPipeline(uint32_t nowMs, uint32_t nowUs) {
     }
 
     impactSensor.update(nowMs);
-    if (out.impactEdge) {
+    // Trigger the ADXL335 burst the moment the magnet first crosses the
+    // main hall sensor, NOT when the debounced edge fires. The
+    // KY003Sensor::update() above only returns true after the raw
+    // signal has been stable for `KY003_DEBOUNCE_MS` (8 ms by default);
+    // by then the racket-frame impact transient has already peaked
+    // (peak window 1-3 ms post-contact) and we'd be sampling
+    // ring-down. Using the raw-edge probe lets us catch the actual
+    // peak. The hit *counter* still uses the debounced edge above so
+    // a noisy signal can't inflate hit counts.
+    if (sensor.consumeRawEdge()) {
         impactSensor.captureImpact(nowMs);
     }
     return out;

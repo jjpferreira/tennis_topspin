@@ -124,9 +124,30 @@ void ADXL335Sensor::update(uint32_t nowMs) {
     int xRaw = 0, yRaw = 0, zRaw = 0;
     sampleAxes(xRaw, yRaw, zRaw);
 
-    _baselineX = _baselineX * (1.0f - ADXL335_BASELINE_ALPHA) + static_cast<float>(xRaw) * ADXL335_BASELINE_ALPHA;
-    _baselineY = _baselineY * (1.0f - ADXL335_BASELINE_ALPHA) + static_cast<float>(yRaw) * ADXL335_BASELINE_ALPHA;
-    _baselineZ = _baselineZ * (1.0f - ADXL335_BASELINE_ALPHA) + static_cast<float>(zRaw) * ADXL335_BASELINE_ALPHA;
+    // Freeze the baseline while the racket is mid-swing. With alpha
+    // 0.015 at 250 Hz the baseline time constant is ~267 ms; a typical
+    // swing takeback+forward lasts 300-600 ms, so an unfrozen EWMA
+    // would absorb roughly two-thirds of the pre-contact swing
+    // acceleration into the baseline -- which then directly subtracts
+    // from the measured impact magnitude (harder swings get more
+    // bias = systematic underestimation of hard hits). The freeze
+    // threshold is set well above slow-movement gravity drift
+    // (~300 mg) but well below a full swing (>=3000 mg).
+    const float dx = static_cast<float>(xRaw) - _baselineX;
+    const float dy = static_cast<float>(yRaw) - _baselineY;
+    const float dz = static_cast<float>(zRaw) - _baselineZ;
+    const float devCounts = sqrtf(dx * dx + dy * dy + dz * dz);
+    const float devMg = (_calibration.countsPerG > 0.0f)
+        ? (devCounts * 1000.0f / _calibration.countsPerG)
+        : 0.0f;
+    if (devMg < ADXL335_BASELINE_FREEZE_MG) {
+        _baselineX = _baselineX * (1.0f - ADXL335_BASELINE_ALPHA)
+                   + static_cast<float>(xRaw) * ADXL335_BASELINE_ALPHA;
+        _baselineY = _baselineY * (1.0f - ADXL335_BASELINE_ALPHA)
+                   + static_cast<float>(yRaw) * ADXL335_BASELINE_ALPHA;
+        _baselineZ = _baselineZ * (1.0f - ADXL335_BASELINE_ALPHA)
+                   + static_cast<float>(zRaw) * ADXL335_BASELINE_ALPHA;
+    }
 }
 
 void ADXL335Sensor::captureImpact(uint32_t nowMs) {
@@ -213,9 +234,21 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
 }
 
 void ADXL335Sensor::sampleAxes(int& xRaw, int& yRaw, int& zRaw) const {
-    xRaw = analogRead(ADXL335_X_PIN);
-    yRaw = analogRead(ADXL335_Y_PIN);
-    zRaw = analogRead(ADXL335_Z_PIN);
+    // Oversample each axis to drive the noise floor down. The ESP32's
+    // SAR ADC shares analog ground with the BLE radio; with the radio
+    // active each individual analogRead has ~5-15 counts of noise. The
+    // peak-pick loop in captureImpact() amplifies that worst-case noise
+    // by sqrt(N_burst), so reducing per-read variance by sqrt(OVERSAMPLE)
+    // before the peak-pick is worth ~4 us per read.
+    int xs = 0, ys = 0, zs = 0;
+    for (uint8_t i = 0; i < ADXL335_ADC_OVERSAMPLE; i++) {
+        xs += analogRead(ADXL335_X_PIN);
+        ys += analogRead(ADXL335_Y_PIN);
+        zs += analogRead(ADXL335_Z_PIN);
+    }
+    xRaw = xs / static_cast<int>(ADXL335_ADC_OVERSAMPLE);
+    yRaw = ys / static_cast<int>(ADXL335_ADC_OVERSAMPLE);
+    zRaw = zs / static_cast<int>(ADXL335_ADC_OVERSAMPLE);
 }
 
 int16_t ADXL335Sensor::countsToMg(int deltaCounts) const {

@@ -13,3 +13,7 @@ python_app/logs/
 # Local arduino-cli build artifacts (used by `arduino-cli compile
 # --build-path .build_cache/firmware ...` for sandbox-friendly builds).
 .build_cache/
+
+# Claude Code worktree scratch space (local to this developer's machine,
+# never source).
+.claude/

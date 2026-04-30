@@ -34,7 +34,12 @@
 // the runtime value from the firmware on connect, so the dashboard always
 // reflects ground truth, but the Python constant is the canonical "what the
 // rig is supposed to be" used for self-tests and offline analysis.
-#define KY003_GATE_DISTANCE_CM 1.0f
+//
+// Sizing rationale: at 4.3 cm spacing, the 500 us min-transit guard caps
+// measurable speed at 4.3*36000/500 = 309.6 km/h -- comfortably above any
+// real serve. A previous 1.0 cm rig silently dropped anything faster than
+// 72 km/h because transit times sub-500us were rejected as glitches.
+#define KY003_GATE_DISTANCE_CM 4.3f
 #define KY003_GATE_MIN_TRANSIT_US 500u
 // Allow slow hand-driven A->B magnet passes during bench validation. A real
 // ball pass takes <5ms (well under 1% of this ceiling), so widening the window
@@ -51,8 +56,19 @@
 #define ADXL335_SAMPLE_INTERVAL_MS 4u
 #define ADXL335_BASELINE_SAMPLES 32u
 #define ADXL335_BASELINE_ALPHA 0.015f
+// Magnitude (in mg) above which the EWMA baseline updater stops
+// integrating new samples, so a swing's pre-contact acceleration
+// (typically 3000-15000 mg sustained over 300-600 ms) cannot leak
+// into the resting baseline. Above noise from slow rig movement
+// (~300 mg) and below a real swing (>=3000 mg).
+#define ADXL335_BASELINE_FREEZE_MG 2000.0f
 #define ADXL335_IMPACT_SAMPLES 12u
 #define ADXL335_IMPACT_SAMPLE_SPACING_US 850u
+// How many ADC reads to average into a single per-axis sample inside
+// the impact burst. Cuts the radio-correlated SAR ADC noise floor by
+// ~sqrt(N). Each read is ~12 us so 4x oversample fits comfortably
+// inside the 850 us spacing window.
+#define ADXL335_ADC_OVERSAMPLE 4u
 #define ADXL335_COUNTS_PER_G 410.0f
 #define ADXL335_IMPACT_MG_AT_100 4200
 #define ADXL335_CONTACT_FULL_SCALE_MG 1500

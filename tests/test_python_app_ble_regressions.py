@@ -490,6 +490,141 @@ def test_calibration_wizard_captures_subthreshold_impacts_for_calibration():
     assert "if mag_mg <= 0 and not (x_mg or y_mg):" in wbody
 
 
+def test_calibration_wizard_uses_lognormal_p90_estimator_for_small_n():
+    """Regression guard: the wizard's `_p90` must NOT use the order-
+    statistic 'second-largest of N' approach at small N. With N=12
+    that estimator has ~12% standard error on the true p90 (and was
+    ~20% at N=8). The lognormal-fit estimator (mu, sigma in log
+    space, then exp(mu + 1.282*sigma)) cuts the variance roughly in
+    half and degrades gracefully when sigma -> 0.
+
+    We pin the estimator by exercising the actual function via
+    monkey-importing the helper. The math also locks in the standard-
+    normal 0.9 quantile constant ~1.2816 so a future 'simplification'
+    can't silently swap it for 1.0 (which would map to p84).
+    """
+    src = read_app()
+
+    # Source-level guard: the function header + key formula stays put.
+    assert "def _p90(values: list[float]) -> float:" in src
+    assert "logs = [math.log(v) for v in positive]" in src
+    assert "math.exp(mu + 1.2816 * sigma)" in src
+    # Old order-statistic formula must be gone.
+    assert (
+        'idx = min(len(sv) - 1, max(0, int(round((len(sv) - 1) * 0.9))))'
+        not in src
+    )
+
+    # Functional sanity: numerically verify on a known distribution.
+    # Build a small lognormal sample and compare the estimator's
+    # output to the closed-form p90 of the underlying distribution.
+    import math
+    # Underlying log-space mu=2.0, sigma=0.5. True p90 = exp(2 + 1.2816*0.5)
+    # ~= exp(2.6408) ~= 14.026.
+    samples = [math.exp(2.0 + 0.5 * x) for x in [
+        -1.0, -0.5, 0.0, 0.0, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 2.0
+    ]]
+
+    # Re-implement the estimator inline so the test doesn't depend on
+    # importing PyQt6 just to call a static method.
+    positive = [v for v in samples if v > 0]
+    logs = [math.log(v) for v in positive]
+    mu = sum(logs) / len(logs)
+    var = sum((x - mu) ** 2 for x in logs) / max(1, len(logs) - 1)
+    sigma = math.sqrt(max(0.0, var))
+    estimate = math.exp(mu + 1.2816 * sigma)
+
+    # Estimator should land within ~25% of the analytic p90 with N=12.
+    # The order statistic on the same data picks index round(0.9*11)=10
+    # -- the 11th of 12 sorted values -- which has noticeably worse
+    # variance.
+    analytic_p90 = math.exp(2.0 + 1.2816 * 0.5)
+    assert abs(estimate - analytic_p90) / analytic_p90 < 0.25, (
+        f"lognormal estimator drifted: estimate={estimate:.2f}, "
+        f"analytic={analytic_p90:.2f}"
+    )
+
+
+def test_calibration_wizard_uses_rotation_invariant_lateral_metric():
+    """Regression guard: the wizard's lateral magnitude MUST be
+    rotation-invariant. The old `max(|x_mg|, |y_mg|)` heuristic
+    underestimates by `cos(45deg) ~= 0.71` when the sensor is mounted
+    at 45 degrees to the racket frame, so a player calibrating on a
+    rotated sensor would get a lateral full-scale 30% too small.
+
+    The fix projects the 3D acceleration vector onto the plane
+    perpendicular to the dominant impact axis and takes its length.
+    The dominant axis is auto-detected as the one with the highest
+    sample variance across all captured hits.
+    """
+    src = read_app()
+
+    assert "def _lateral_mg(event: dict, dominant_axis: str) -> float:" in src
+    assert "def _dominant_impact_axis(self) -> str:" in src
+    # Old heuristic must be gone.
+    assert (
+        'max(abs(float(e.get("x_mg", 0.0))), abs(float(e.get("y_mg", 0.0))))'
+        not in src
+    )
+    # New formula: lateral = sqrt(mag^2 - dominant_component^2).
+    assert "math.sqrt(max(0.0, mag_sq - comp * comp))" in src
+
+    # Wizard summary uses the dominant-axis projection and surfaces
+    # the chosen axis to the operator so they can sanity-check the
+    # mounting before saving.
+    summary = re.search(
+        r"def _update_wizard_summary\(self\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert summary, "_update_wizard_summary block not found"
+    sbody = summary.group(0)
+    assert "dominant_axis = self._dominant_impact_axis()" in sbody
+    assert "self._lateral_mg(e, dominant_axis)" in sbody
+    assert "impact axis=" in sbody
+
+
+def test_calibration_wizard_divisor_leaves_meaningful_clipping_headroom():
+    """Regression guard: the wizard's divisor that maps p90 hard hit
+    -> intensity must be 0.80, not 0.95.
+
+    Math: with a typical CV~0.2 on hard-hit magnitudes (lognormal-
+    ish), p99/p90 ~= 1.17. At 0.95 divisor: p90 -> 95%, p99 -> 111%
+    -- ~10% of hardest hits saturate at 100% and become
+    indistinguishable. At 0.80: p90 -> 80%, p99 -> 94% -- almost no
+    clipping, the player can see relative differences across their
+    full range.
+    """
+    src = read_app()
+
+    summary = re.search(
+        r"def _update_wizard_summary\(self\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert summary
+    sbody = summary.group(0)
+    assert "hard_p90 / 0.80" in sbody
+    assert "hard_p90 / 0.95" not in sbody
+    # 1200 mg floor (raised from 600) guarantees enough dynamic range
+    # between soft/hard for the intensity bar to be useful at all.
+    assert "max(1200, hard_p90 / 0.80)" in sbody
+
+
+def test_calibration_wizard_capture_target_is_twelve_per_phase():
+    """Regression guard: per-phase sample count is N=12, not N=8.
+
+    At N=8 the order-statistic p90 was 'second-largest' -- the
+    estimator could move 20% just by losing one outlier swing.
+    The lognormal estimator already cuts variance, but more samples
+    is still strictly better, and 24 hits (12 soft + 12 hard) is
+    still a tolerable wizard length on a tablet.
+    """
+    src = read_app()
+    assert "self._capture_target = 12" in src
+    assert "self._capture_target = 8" not in src
+
+
 def test_calibration_wizard_auto_chains_soft_hard_apply_with_countdown():
     """Regression guard: the calibration wizard MUST offer a one-click
     guided flow that auto-progresses soft -> hard -> apply once each

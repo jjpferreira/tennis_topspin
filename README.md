@@ -40,7 +40,7 @@ Use this as the quick wiring reference for the ESP32 firmware.
 | WS2812 LED ring (optional) | Visual feedback ring data line | `GPIO 12` | `LED_PIN` |
 
 Reference distance for gate speed timing:
-- `KY003_GATE_DISTANCE_CM = 1.0` (centre-to-centre sensor spacing in cm)
+- `KY003_GATE_DISTANCE_CM = 4.3` (centre-to-centre sensor spacing in cm). At this spacing the firmware's 500&nbsp;µs min-transit guard caps measurable speed at ~310&nbsp;km/h, comfortably above any real serve.
 - Main KY-003 also feeds RPM derivation (`KY003_RPM_PULSES_PER_REV`) via trigger rate conversion.
 
 > **Single source of truth for physical-rig constants.** The same gate

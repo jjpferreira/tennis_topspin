@@ -319,7 +319,14 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "#define KY003_RATE_WINDOW_MS 5000u" in config_h
     assert "#define KY003_GATE_START_PIN" in config_h
     assert "#define KY003_GATE_END_PIN" in config_h
-    assert "#define KY003_GATE_DISTANCE_CM 1.0f" in config_h
+    # Gate spacing is the physical centre-to-centre distance between
+    # the two KY-003 sensors. At 4.3 cm the 500 us min-transit guard
+    # caps measurable speed at ~310 km/h (any serve fits). At an
+    # earlier 1.0 cm rig the cap was 72 km/h which silently dropped
+    # everything above a slow rally -- pin the new value so a future
+    # config edit can't reintroduce that bug without flipping the
+    # test red.
+    assert "#define KY003_GATE_DISTANCE_CM 4.3f" in config_h
     assert "#define KY003_GATE_MIN_TRANSIT_US 500u" in config_h
     assert "#define KY003_GATE_MAX_TRANSIT_US 10000000u" in config_h
     assert "#define KY003_RPM_PULSES_PER_REV 1u" in config_h
@@ -519,6 +526,146 @@ def test_tennis_firmware_impact_payload_carries_baseline_gravity_and_tilt():
         "static_cast<int16_t>(_calibration.contactFullScaleMg)\n    );"
         in adxl_cpp
     )
+
+
+def test_ky003_exposes_raw_edge_probe_for_time_critical_consumers():
+    """Regression guard for the most expensive accuracy bug we hit:
+    the ADXL335 impact burst was triggered by `KY003Sensor::update()`
+    returning true, which only happens AFTER `_debounceMs` (8 ms) of
+    raw-signal stability. By that time a tennis impact transient
+    (peak 1-3 ms post-contact) is gone and we sample ring-down --
+    every magnitude reading was systematically biased low.
+
+    The fix decouples impact capture from the debounce: the sensor
+    latches a raw-edge flag the instant the magnet first crosses,
+    and the sketch consumes that flag to fire `captureImpact()` at
+    the actual contact instant. The hit COUNTER still uses debounce.
+    """
+    sensor_h = read_text(SENSOR_H)
+    sensor_cpp = read_text(SENSOR_CPP)
+    sketch = read_text(SKETCH)
+
+    # API surface: a one-shot probe that latches and is consumed on
+    # read so a single transition can't fire the burst twice.
+    assert "bool consumeRawEdge();" in sensor_h
+    assert "bool _rawEdgePending = false;" in sensor_h
+    assert "bool KY003Sensor::consumeRawEdge()" in sensor_cpp
+
+    # Latch logic: only count-direction transitions latch (a magnet
+    # leaving the sensor isn't a contact). Latched in `update()`
+    # before the debounce gate, so the latch sees the raw edge even
+    # if the signal hasn't yet stabilised.
+    update_blk = re.search(
+        r"bool KY003Sensor::update\(uint32_t nowMs\) \{.*?\n\}",
+        sensor_cpp,
+        flags=re.S,
+    )
+    assert update_blk, "KY003Sensor::update() body not found"
+    ubody = update_blk.group(0)
+    assert "if (shouldCountEdge(_rawLast, raw)) {" in ubody
+    assert "_rawEdgePending = true;" in ubody
+    # The latch must come BEFORE the early-return `_rawLast = raw`
+    # path so the very first raw transition is captured -- if we
+    # latched after, we'd lose the edge entirely on a clean signal
+    # that never re-bounces.
+    latch_idx = ubody.index("_rawEdgePending = true;")
+    update_assign_idx = ubody.index("_rawLast = raw;")
+    assert latch_idx < update_assign_idx, (
+        "Raw edge latch must run BEFORE the _rawLast assignment, "
+        "otherwise shouldCountEdge sees identical states and never "
+        "latches anything."
+    )
+
+    # reset() also clears the latch so a session-restart can't fire
+    # a phantom impact from a pre-reset edge.
+    reset_blk = re.search(
+        r"void KY003Sensor::reset\(\) \{.*?\n\}",
+        sensor_cpp,
+        flags=re.S,
+    )
+    assert reset_blk
+    assert "_rawEdgePending = false;" in reset_blk.group(0)
+
+    # Sketch consumes the raw edge for impact capture, NOT
+    # `out.impactEdge` (which is the debounced edge). The debounced
+    # path still runs, just for the hit counter / [HIT] log.
+    pipeline = re.search(
+        r"static SensorPipelineResult runSensorPipeline\(.*?\n\}",
+        sketch,
+        flags=re.S,
+    )
+    assert pipeline
+    pbody = pipeline.group(0)
+    assert "if (sensor.consumeRawEdge()) {" in pbody
+    assert "impactSensor.captureImpact(nowMs);" in pbody
+    # Make sure we did NOT keep the old debounced trigger as a
+    # secondary path -- two captureImpact() calls per hit would
+    # double-trigger on every edge.
+    bad = re.findall(r"impactSensor\.captureImpact\(nowMs\);", pbody)
+    assert len(bad) == 1, (
+        "Exactly one captureImpact() call per pipeline tick. Found "
+        f"{len(bad)} -- check for stale debounced-path duplicates."
+    )
+
+
+def test_adxl_baseline_freezes_during_swing_to_avoid_pre_contact_bias():
+    """Regression guard: the EWMA baseline updater MUST stop
+    integrating samples whose deviation from the current baseline
+    exceeds ADXL335_BASELINE_FREEZE_MG. Without the freeze a 300-600 ms
+    swing (sustained 3-15 g) would be partly absorbed into the
+    baseline by the EWMA (alpha=0.015 at 250 Hz, time constant
+    ~267 ms), and that absorbed component would directly subtract
+    from the measured impact peak -- biasing harder swings more.
+    """
+    config = read_text(CONFIG_H)
+    adxl_cpp = read_text(ADXL_CPP)
+
+    # The threshold lives in config so a future engineer can tune it
+    # without touching the math.
+    assert "#define ADXL335_BASELINE_FREEZE_MG 2000.0f" in config
+
+    # Update body computes deviation in mg and gates the EWMA.
+    update_blk = re.search(
+        r"void ADXL335Sensor::update\(uint32_t nowMs\) \{.*?\n\}",
+        adxl_cpp,
+        flags=re.S,
+    )
+    assert update_blk
+    ubody = update_blk.group(0)
+    assert "if (devMg < ADXL335_BASELINE_FREEZE_MG) {" in ubody
+    # All three EWMA updates must be inside the freeze gate -- if any
+    # single axis still updates unconditionally, that axis can absorb
+    # the swing acceleration even when the others are correctly
+    # frozen.
+    gate_idx = ubody.index("if (devMg < ADXL335_BASELINE_FREEZE_MG) {")
+    body_after_gate = ubody[gate_idx:]
+    assert "_baselineX = _baselineX *" in body_after_gate
+    assert "_baselineY = _baselineY *" in body_after_gate
+    assert "_baselineZ = _baselineZ *" in body_after_gate
+    body_before_gate = ubody[:gate_idx]
+    assert "_baselineX = _baselineX *" not in body_before_gate
+    assert "_baselineY = _baselineY *" not in body_before_gate
+    assert "_baselineZ = _baselineZ *" not in body_before_gate
+
+
+def test_adxl_sample_axes_oversamples_to_reduce_radio_noise():
+    """Regression guard: the ESP32 SAR ADC shares analog ground with
+    the BLE radio, so each individual analogRead has 5-15 counts of
+    noise (12-37 mg). The 12-sample peak-pick in captureImpact()
+    amplifies that noise by ~sqrt(N) on the worst-case sample.
+    Oversampling each axis by ADXL335_ADC_OVERSAMPLE inside
+    sampleAxes() drops the per-read noise floor by ~sqrt(OVERSAMPLE)
+    BEFORE peak-pick sees it.
+    """
+    config = read_text(CONFIG_H)
+    adxl_cpp = read_text(ADXL_CPP)
+
+    assert "#define ADXL335_ADC_OVERSAMPLE 4u" in config
+    assert "for (uint8_t i = 0; i < ADXL335_ADC_OVERSAMPLE; i++) {" in adxl_cpp
+    assert "xs += analogRead(ADXL335_X_PIN);" in adxl_cpp
+    assert "ys += analogRead(ADXL335_Y_PIN);" in adxl_cpp
+    assert "zs += analogRead(ADXL335_Z_PIN);" in adxl_cpp
+    assert "xRaw = xs / static_cast<int>(ADXL335_ADC_OVERSAMPLE);" in adxl_cpp
 
 
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():

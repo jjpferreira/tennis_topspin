@@ -1641,7 +1641,14 @@ class SettingsWindow(QWidget):
         self.setWindowTitle("Tennis App & Hardware Settings")
         self.resize(760, 520)
         self._capture_mode: str | None = None
-        self._capture_target = 8
+        # Number of impacts captured per phase. The wizard's `_p90`
+        # estimator is variance-bounded by N: at N=8 it degenerates to
+        # "second-largest of 8" with ~20% standard error on the p90;
+        # bumping to N=12 cuts that to ~12% while keeping the swing
+        # count tolerable on a tablet (24 hits total for a guided
+        # run). The lognormal estimator below also benefits from more
+        # samples to fit mu/sigma.
+        self._capture_target = 12
         self._soft_samples: list[dict] = []
         self._hard_samples: list[dict] = []
         self._suggested_impact_mg_100: int | None = None
@@ -2231,11 +2238,75 @@ class SettingsWindow(QWidget):
 
     @staticmethod
     def _p90(values: list[float]) -> float:
-        if not values:
+        """Lognormal-fit p90 estimator. Drops in for the old order-
+        statistic version. Impact magnitudes are right-skewed and
+        approximately lognormal, so fitting log(mu, sigma) and
+        evaluating exp(mu + 1.282*sigma) gives a much lower-variance
+        p90 estimate at small N (N<=12) than the order statistic
+        would. With the order-statistic approach at N=8 you were
+        essentially picking 'second-largest' which has ~20% SE on
+        the true p90; this fitting approach cuts that roughly in
+        half and degrades gracefully to the sample mean when sigma
+        approaches zero (all hits identical).
+        """
+        positive = [float(v) for v in values if v and float(v) > 0.0]
+        if not positive:
             return 0.0
-        sv = sorted(values)
-        idx = min(len(sv) - 1, max(0, int(round((len(sv) - 1) * 0.9))))
-        return sv[idx]
+        if len(positive) == 1:
+            return positive[0]
+        logs = [math.log(v) for v in positive]
+        mu = sum(logs) / len(logs)
+        # Sample-variance with Bessel correction (n-1) so the estimate
+        # is unbiased at small N.
+        var = sum((x - mu) ** 2 for x in logs) / max(1, (len(logs) - 1))
+        sigma = math.sqrt(max(0.0, var))
+        # 1.2816 is the standard-normal 0.9 quantile (2 dp) -- the
+        # multiplier that maps mu+k*sigma in log-space to the p90.
+        return math.exp(mu + 1.2816 * sigma)
+
+    @staticmethod
+    def _lateral_mg(event: dict, dominant_axis: str) -> float:
+        """Return the in-plane lateral magnitude for a single impact,
+        independent of mounting orientation. We project the 3D
+        acceleration vector onto the plane perpendicular to the
+        dominant impact axis and take its length:
+            lateral = sqrt(mag^2 - dominant_component^2)
+        That makes the estimate rotation-invariant: a sensor mounted
+        at 45 degrees to the racket frame measures the same lateral
+        magnitude as one mounted at 0 degrees, instead of losing
+        ~30% to the cosine projection that the old
+        max(|x_mg|, |y_mg|) heuristic suffered from.
+        """
+        x = float(event.get("x_mg", 0.0))
+        y = float(event.get("y_mg", 0.0))
+        z = float(event.get("z_mg", 0.0))
+        mag_sq = x * x + y * y + z * z
+        if dominant_axis == "x":
+            comp = x
+        elif dominant_axis == "y":
+            comp = y
+        else:
+            comp = z
+        return math.sqrt(max(0.0, mag_sq - comp * comp))
+
+    def _dominant_impact_axis(self) -> str:
+        """Designate the axis with the highest variance across all
+        captured samples as the impact axis. The other two form the
+        lateral plane. Defaults to 'z' until we have data because the
+        ADXL is typically mounted with its z axis along the racket
+        face normal (where the ball strikes).
+        """
+        pool = self._soft_samples + self._hard_samples
+        if not pool:
+            return "z"
+        def _var(key: str) -> float:
+            vals = [float(e.get(key, 0.0)) for e in pool]
+            if len(vals) <= 1:
+                return 0.0
+            mu = sum(vals) / len(vals)
+            return sum((v - mu) ** 2 for v in vals) / (len(vals) - 1)
+        candidates = {"x": _var("x_mg"), "y": _var("y_mg"), "z": _var("z_mg")}
+        return max(candidates, key=lambda k: candidates[k])
 
     def _update_wizard_summary(self):
         if self._soft_samples:
@@ -2246,18 +2317,32 @@ class SettingsWindow(QWidget):
             self.lbl_wiz_hard.setText(f"Hard set: {len(self._hard_samples)} hits | avg mag {hard_mag:.0f} mg")
 
         if self._soft_samples and self._hard_samples:
+            dominant_axis = self._dominant_impact_axis()
             hard_p90 = self._p90([self._mag(x) for x in self._hard_samples])
             lateral_pool = [
-                max(abs(float(e.get("x_mg", 0.0))), abs(float(e.get("y_mg", 0.0))))
+                self._lateral_mg(e, dominant_axis)
                 for e in (self._soft_samples + self._hard_samples)
             ]
             lateral_p90 = self._p90(lateral_pool)
-            self._suggested_impact_mg_100 = int(max(600, hard_p90 / 0.95))
+            # Divisor 0.80 (was 0.95): with a typical CV~0.2 on hard-
+            # hit magnitudes, p99/p90 ~= 1.17, so dividing p90 by 0.80
+            # puts p99 at ~0.94 -- hardly any clipping. The previous
+            # 0.95 left only 5% headroom and ~10% of hard hits
+            # saturated at 100% intensity, indistinguishable.
+            # Floor 1200 mg (was 600): if a player taps so softly
+            # that even their 90th-percentile hard hit is only 600 mg,
+            # any 600 mg+ tap reads as 100% intensity which is
+            # uselessly compressed; force a sensible minimum dynamic
+            # range.
+            self._suggested_impact_mg_100 = int(max(1200, hard_p90 / 0.80))
+            # 1.15x lateral headroom is unchanged: gives a 15% margin
+            # before a slightly off-axis hard hit saturates contact_x/y.
             self._suggested_contact_full_scale_mg = int(max(250, lateral_p90 * 1.15))
             self.lbl_wiz_suggest.setText(
                 "Suggested: "
                 f"mg@100={self._suggested_impact_mg_100}, "
-                f"contact={self._suggested_contact_full_scale_mg}"
+                f"contact={self._suggested_contact_full_scale_mg} "
+                f"(impact axis={dominant_axis})"
             )
 
     def on_impact_event(self, event: dict):
