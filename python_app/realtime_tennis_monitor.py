@@ -4851,16 +4851,16 @@ class TennisDashboard(QMainWindow):
             self._last_count_sample_ts = 0.0
             self.btn_connect.setEnabled(True)
             self.btn_connect.setText("CONNECT SENSOR")
-        self._impact_by_hit_count.clear()
-        self._last_impact_reading = (0, 0, 0)
-        self._last_gate_speed_mph = 0.0
-        self._last_gate_speed_ts = 0.0
-        self._last_arm_tilt_deg = 0.0
-        self._last_arm_tilt_ts = 0.0
-        self._last_gravity_baseline_mg = (0, 0, 0)
-        self.telemetry.gate_speed_mph = 0.0
-        self.telemetry.rpm_x10 = 0
-        self.mode_chip.setText("MODE\nSIMULATION")
+            self._impact_by_hit_count.clear()
+            self._last_impact_reading = (0, 0, 0)
+            self._last_gate_speed_mph = 0.0
+            self._last_gate_speed_ts = 0.0
+            self._last_arm_tilt_deg = 0.0
+            self._last_arm_tilt_ts = 0.0
+            self._last_gravity_baseline_mg = (0, 0, 0)
+            self.telemetry.gate_speed_mph = 0.0
+            self.telemetry.rpm_x10 = 0
+            self.mode_chip.setText("MODE\nSIMULATION")
             self.sensors_chip.setText("SENSORS\nDISCONNECTED")
             self.sensors_chip.setObjectName("ChipErr")
             self.health_chip.setText("SENSOR HEALTH\n— pending")
