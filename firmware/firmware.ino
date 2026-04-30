@@ -472,19 +472,18 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
 
     if (sensorResult.impactEdge) {
         ImpactSample impact = impactSensor.getLastImpact();
-        // We ship the frame even when the accelerometer didn't see a strong
-        // enough z-spike to call this a valid impact. The `valid` flag is
-        // honored on the host: the impact x/y/z deltas are zeroed in
-        // captureImpact() when invalid, but the gravity *baseline* is
-        // independent of the spike and is what the host needs to derive
-        // racket tilt / arm angle. Skipping pushImpact here was the reason
-        // the dashboard's arm-angle slider stayed flat for users whose
-        // ADXL335 had a busted baseline (e.g. a floating axis pin reading
-        // ~3700 mg instead of ~1000 mg) -- valid impacts never landed, so
-        // no orientation ever shipped. Now every main-hall hit carries the
-        // current pose, and a misconfigured accelerometer just means the
-        // x/y impact bits are zero rather than the whole frame being
-        // suppressed.
+        // We ship the frame on EVERY main-hall edge, with the actual
+        // measured lateral mg, regardless of whether the magnitude
+        // cleared `minValidImpactMg`. Two reasons:
+        //   1. The gravity baseline is independent of the spike and is
+        //      what the host uses to derive racket tilt / arm angle.
+        //   2. The host's calibration wizard derives the new
+        //      `impact_mg_100` and `contact_full_scale_mg` from these
+        //      raw lateral readings -- if we zero them when the current
+        //      threshold rejects the hit, the wizard can never recover
+        //      from a too-high threshold (chicken-and-egg). The host
+        //      honors `valid` for LIVE shot tracking but ignores it
+        //      for calibration sample collection.
         bleHandler.pushImpact(
             sensor.getHitCount(),
             impact.xMg,

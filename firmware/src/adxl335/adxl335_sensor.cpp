@@ -176,17 +176,25 @@ void ADXL335Sensor::captureImpact(uint32_t nowMs) {
     }
     intensity = constrain(intensity, 0, 100);
 
-    _lastImpact.xMg = validImpact ? xMg : 0;
-    _lastImpact.yMg = validImpact ? yMg : 0;
-    _lastImpact.zMg = validImpact ? zMg : 0;
+    // ALWAYS emit the measured lateral mg, even when the magnitude is
+    // below the current `minValidImpactMg` threshold. The host's
+    // calibration wizard derives a new threshold from these very
+    // numbers; if we zero them out for "invalid" impacts the wizard
+    // can never recover from a too-high threshold (chicken-and-egg
+    // bug spotted during forearm bench bring-up). The `valid` flag
+    // still tells the host whether magnitude cleared the current
+    // threshold so the LIVE shot pipeline can keep filtering noise.
+    _lastImpact.xMg = xMg;
+    _lastImpact.yMg = yMg;
+    _lastImpact.zMg = zMg;
     _lastImpact.magnitudeMg = magMgClamped;
     _lastImpact.intensityPct = static_cast<uint8_t>(intensity);
-    _lastImpact.contactX = validImpact
-        ? toContactCoord(xMg, static_cast<int16_t>(_calibration.contactFullScaleMg))
-        : 0;
-    _lastImpact.contactY = validImpact
-        ? toContactCoord(yMg, static_cast<int16_t>(_calibration.contactFullScaleMg))
-        : 0;
+    _lastImpact.contactX = toContactCoord(
+        xMg, static_cast<int16_t>(_calibration.contactFullScaleMg)
+    );
+    _lastImpact.contactY = toContactCoord(
+        yMg, static_cast<int16_t>(_calibration.contactFullScaleMg)
+    );
     _lastImpact.valid = validImpact;
     _lastImpact.capturedAtMs = nowMs;
     // Snapshot the gravity vector and derived tilt at impact time. We use

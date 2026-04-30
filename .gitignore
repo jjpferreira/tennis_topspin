@@ -9,3 +9,7 @@ venv/
 # Runtime logs from the Python app
 python_app/logs/
 *.log
+
+# Local arduino-cli build artifacts (used by `arduino-cli compile
+# --build-path .build_cache/firmware ...` for sandbox-friendly builds).
+.build_cache/

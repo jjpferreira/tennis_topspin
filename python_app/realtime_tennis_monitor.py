@@ -824,6 +824,27 @@ class CalibrationWizardPreviewWidget(QWidget):
         self._last_x = 0
         self._last_y = 0
         self._last_redness = 0
+        # Per-hit pulse animation. _pulse_strength fades from 1.0 to 0.0
+        # over ~600 ms after each registered impact so the user gets an
+        # unambiguous "the wizard saw a hit" cue even when the contact
+        # coordinates are ambiguous (eg. an invalid impact frame from a
+        # misconfigured ADXL where contact_x/y are zeroed).
+        self._pulse_strength: float = 0.0
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(40)
+        self._pulse_timer.timeout.connect(self._on_pulse_tick)
+        self._hits_detected = 0
+        # Capture countdown shown over the ball while a phase is
+        # collecting samples. (remaining, target) when active, None
+        # when idle. The remaining number is drawn big in the centre
+        # of the ball so the user can keep their eyes on the racket
+        # and still see how many more hits they need.
+        self._countdown: tuple[int, int] | None = None
+        # Optional "get ready" overlay used between phases of the
+        # auto-chain (e.g. switching from soft to hard hitting). When
+        # set, we draw a yellow N over the ball that ticks down and
+        # then fades.
+        self._get_ready: tuple[int, str] | None = None
         self.setMinimumHeight(175)
 
     def set_mode(self, mode: str | None):
@@ -834,6 +855,86 @@ class CalibrationWizardPreviewWidget(QWidget):
         self._last_x = max(-100, min(100, int(impact_x)))
         self._last_y = max(-100, min(100, int(impact_y)))
         self._last_redness = max(0, min(100, int(impact_redness)))
+        self.update()
+
+    def set_last_hit_from_raw_mg(
+        self,
+        x_mg: int,
+        y_mg: int,
+        mag_mg: int,
+        lateral_full_scale_mg: int = 1000,
+        impact_full_scale_mg: int = 4000,
+    ):
+        """Paint the impact dot directly from the accelerometer's raw
+        lateral mg readings, NOT from the calibration-mapped contact_x/y.
+
+        This is the key for the calibration wizard: we want the dot to
+        land where the ADXL says the racket struck the ball, regardless
+        of whether the current `contact_full_scale_mg` calibration is
+        right. Previously the dot was painted from `contact_x/y` which
+        get clamped to ~0 when the current full-scale is far too high
+        relative to the actual measured spike, leaving the wizard
+        looking dead even on real hits.
+
+        `lateral_full_scale_mg` and `impact_full_scale_mg` are
+        intentionally generous defaults so the wizard preview's dot
+        never saturates while the user is calibrating. They have no
+        effect on the firmware -- they only scale the visual preview.
+        """
+        if lateral_full_scale_mg <= 0:
+            lateral_full_scale_mg = 1000
+        if impact_full_scale_mg <= 0:
+            impact_full_scale_mg = 4000
+        nx = (float(x_mg) * 100.0) / float(lateral_full_scale_mg)
+        ny = (float(y_mg) * 100.0) / float(lateral_full_scale_mg)
+        redness = (float(mag_mg) * 100.0) / float(impact_full_scale_mg)
+        self._last_x = max(-100, min(100, int(round(nx))))
+        self._last_y = max(-100, min(100, int(round(ny))))
+        self._last_redness = max(0, min(100, int(round(redness))))
+        self.update()
+
+    def trigger_hit_pulse(self):
+        """Call this on every detected impact so the preview clearly
+        animates -- independent of where the dot ended up. We tick at
+        25 Hz and fade linearly so even a string of rapid hits visibly
+        stack."""
+        self._pulse_strength = 1.0
+        self._hits_detected += 1
+        if not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+        self.update()
+
+    def hits_detected(self) -> int:
+        return self._hits_detected
+
+    def reset_hit_counter(self):
+        self._hits_detected = 0
+        self.update()
+
+    def set_countdown(self, remaining: int | None, target: int | None = None):
+        """Show a big "X of Y hits to go" overlay on the ball while
+        capturing. Pass remaining=None to clear it (between phases or
+        when idle)."""
+        if remaining is None or target is None:
+            self._countdown = None
+        else:
+            self._countdown = (max(0, int(remaining)), max(1, int(target)))
+        self.update()
+
+    def set_get_ready(self, seconds: int | None, label: str = ""):
+        """Show a brief "GET READY: HARD in 3" countdown between auto-
+        chain phases. Pass seconds=None to clear."""
+        if seconds is None or seconds <= 0:
+            self._get_ready = None
+        else:
+            self._get_ready = (int(seconds), str(label))
+        self.update()
+
+    def _on_pulse_tick(self):
+        # Fade-out duration ~ 600ms (15 frames at 40ms).
+        self._pulse_strength = max(0.0, self._pulse_strength - (1.0 / 15.0))
+        if self._pulse_strength <= 0.0:
+            self._pulse_timer.stop()
         self.update()
 
     def paintEvent(self, event):  # noqa: N802
@@ -877,24 +978,69 @@ class CalibrationWizardPreviewWidget(QWidget):
         cy = ball_rect.center().y() - ny * (size * 0.34)
         hit_r = size * (0.04 + self._last_redness * 0.0007)
         hit_r = max(hit_r, 5.0)
-        if self._last_redness > 0:
+        # Pulse halo on every detected hit -- inflates the glow circle
+        # and brightens the alpha so the wizard visibly reacts even
+        # when the impact landed at (0, 0) with redness 0 (common with
+        # an ADXL whose impact validity threshold isn't passing yet).
+        pulse = self._pulse_strength
+        if self._last_redness > 0 or pulse > 0.0:
             glow = QColor("#ff4040")
-            glow.setAlpha(35 + int(1.8 * self._last_redness))
+            base_alpha = 35 + int(1.8 * self._last_redness)
+            pulse_alpha = int(140 * pulse)
+            glow.setAlpha(min(255, base_alpha + pulse_alpha))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(glow)
-            p.drawEllipse(QPointF(cx, cy), hit_r * 1.8, hit_r * 1.8)
+            radius_mul = 1.8 + 1.6 * pulse
+            p.drawEllipse(QPointF(cx, cy), hit_r * radius_mul, hit_r * radius_mul)
         p.setPen(QPen(QColor("#ffd6d6"), 1.0))
         p.setBrush(QColor("#ff2d2d"))
-        p.drawEllipse(QPointF(cx, cy), hit_r, hit_r)
+        dot_r = hit_r * (1.0 + 0.6 * pulse)
+        p.drawEllipse(QPointF(cx, cy), dot_r, dot_r)
+
+        # Big countdown / get-ready overlay drawn over the ball so the
+        # user can keep their eyes on the racket and still see how
+        # many more hits the current phase needs.
+        if self._get_ready is not None:
+            secs, label = self._get_ready
+            p.setPen(QColor("#ffd54a"))
+            p.setFont(QFont("Arial", 28, QFont.Weight.Bold))
+            p.drawText(
+                ball_rect, Qt.AlignmentFlag.AlignCenter,
+                f"{label}\n{secs}",
+            )
+        elif self._countdown is not None:
+            remaining, target = self._countdown
+            done = max(0, target - remaining)
+            p.setPen(QColor("#ffffff"))
+            p.setFont(QFont("Arial", 30, QFont.Weight.Bold))
+            p.drawText(
+                ball_rect, Qt.AlignmentFlag.AlignCenter,
+                f"{remaining}",
+            )
+            p.setPen(QColor("#1a3550"))
+            p.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+            p.drawText(
+                ball_rect.adjusted(0, ball_rect.height() * 0.34, 0, 0),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                f"{done} / {target} done",
+            )
 
         p.setPen(QColor("#c5d8eb"))
         p.setFont(QFont("Arial", 8))
-        mode_txt = "IDLE"
+        mode_txt = "PREVIEW: each impact pulses red"
         if self._mode == "soft":
             mode_txt = "SOFT CAPTURE: aim smooth center contacts"
         elif self._mode == "hard":
             mode_txt = "HARD CAPTURE: aim center with full power"
         p.drawText(10, self.height() - 10, mode_txt)
+        # Live hit counter so the operator can confirm the wizard is
+        # consuming impact frames at all -- "0 detected" after a few
+        # taps means the BLE pipeline (not the wizard) is broken.
+        p.setPen(QColor("#9fbcd8"))
+        p.drawText(
+            self.width() - 110, self.height() - 10,
+            f"hits detected: {self._hits_detected}",
+        )
 
 
 class ConsistencyComparisonWidget(QWidget):
@@ -1500,6 +1646,18 @@ class SettingsWindow(QWidget):
         self._hard_samples: list[dict] = []
         self._suggested_impact_mg_100: int | None = None
         self._suggested_contact_full_scale_mg: int | None = None
+        # Auto-chain state. When `_chain_running` is True, the wizard
+        # progresses soft -> hard -> apply on its own with a brief
+        # "get ready" pause between phases. Each phase still routes
+        # through _start_capture / _apply_suggested so manual buttons
+        # keep working unchanged.
+        self._chain_running: bool = False
+        self._chain_get_ready_secs: int = 3
+        self._chain_get_ready_remaining: int = 0
+        self._chain_get_ready_timer = QTimer(self)
+        self._chain_get_ready_timer.setInterval(1000)
+        self._chain_get_ready_timer.timeout.connect(self._on_chain_get_ready_tick)
+        self._chain_get_ready_next_phase: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -1609,6 +1767,15 @@ class SettingsWindow(QWidget):
         wiz_lay.addWidget(self.lbl_wizard_help)
         self.wiz_preview = CalibrationWizardPreviewWidget()
         wiz_lay.addWidget(self.wiz_preview)
+        # Top row: one-click guided run.
+        self.btn_wiz_run_all = QPushButton("\u25b6  RUN GUIDED CALIBRATION")
+        self.btn_wiz_run_all.setToolTip(
+            "Walks you through soft hits, then hard hits, then applies the "
+            "suggested calibration -- with a visible countdown on the ball "
+            "preview. You don't need to touch any of the manual buttons."
+        )
+        wiz_lay.addWidget(self.btn_wiz_run_all)
+        # Manual override row (advanced / re-run a single phase).
         wiz_btns = QHBoxLayout()
         self.btn_wiz_soft = QPushButton("1) CAPTURE SOFT")
         self.btn_wiz_hard = QPushButton("2) CAPTURE HARD")
@@ -1742,6 +1909,7 @@ class SettingsWindow(QWidget):
         self.btn_cal_apply.clicked.connect(self._apply_calibration_from_inputs)
         self.btn_cal_save.clicked.connect(self.dashboard._save_firmware_calibration)
         self.btn_cal_reset.clicked.connect(self.dashboard._reset_firmware_calibration)
+        self.btn_wiz_run_all.clicked.connect(self._run_wizard_chain)
         self.btn_wiz_soft.clicked.connect(lambda: self._start_capture("soft"))
         self.btn_wiz_hard.clicked.connect(lambda: self._start_capture("hard"))
         self.btn_wiz_apply.clicked.connect(self._apply_suggested)
@@ -1987,15 +2155,75 @@ class SettingsWindow(QWidget):
         if mode == "soft":
             self._soft_samples = []
             self.lbl_wiz_soft.setText("Soft set: capturing...")
-            self.lbl_wiz_status.setText(f"Capture {self._capture_target} soft hits now.")
+            self.lbl_wiz_status.setText(
+                f"SOFT capture: 0 of {self._capture_target} hits -- start swinging now."
+            )
             self.lbl_wizard_help.setText("Soft capture: hit around center with controlled pace.")
         else:
             self._hard_samples = []
             self.lbl_wiz_hard.setText("Hard set: capturing...")
-            self.lbl_wiz_status.setText(f"Capture {self._capture_target} hard hits now.")
+            self.lbl_wiz_status.setText(
+                f"HARD capture: 0 of {self._capture_target} hits -- start swinging now."
+            )
             self.lbl_wizard_help.setText("Hard capture: hit around center with stronger acceleration.")
         self._capture_mode = mode
         self.wiz_preview.set_mode(mode)
+        # Fresh hit counter per capture phase so the operator sees the
+        # capture buffer fill in real time on the preview HUD.
+        self.wiz_preview.reset_hit_counter()
+        # Big "X to go" overlay that sits on top of the ball preview
+        # so the user can keep their eyes on the racket and still see
+        # how many hits are left in this phase.
+        self.wiz_preview.set_countdown(self._capture_target, self._capture_target)
+        self.wiz_preview.set_get_ready(None)
+
+    # ---- Auto-chain helpers --------------------------------------------------
+    def _run_wizard_chain(self):
+        """Start the guided one-click flow: soft -> hard -> apply.
+        Each phase still uses the existing _start_capture() / _apply_suggested()
+        plumbing so manual buttons keep working unchanged. The flag
+        `_chain_running` is what tells on_impact_event to advance to the next
+        phase when a capture finishes."""
+        self._chain_running = True
+        self.lbl_wizard_help.setText(
+            "Guided calibration: hit SOFT, then HARD, then we'll apply the "
+            "suggested values automatically."
+        )
+        self._start_capture("soft")
+
+    def _begin_get_ready(self, next_phase: str, label: str, seconds: int = 3):
+        """Show a between-phases countdown ('HARD in 3...2...1') and then
+        kick off the next phase."""
+        self._chain_get_ready_next_phase = next_phase
+        self._chain_get_ready_remaining = max(1, int(seconds))
+        self.wiz_preview.set_countdown(None)
+        self.wiz_preview.set_get_ready(self._chain_get_ready_remaining, label)
+        self.lbl_wiz_status.setText(
+            f"Switching to {label} in {self._chain_get_ready_remaining}s -- get ready..."
+        )
+        self._chain_get_ready_timer.start()
+
+    def _on_chain_get_ready_tick(self):
+        self._chain_get_ready_remaining -= 1
+        if self._chain_get_ready_remaining > 0:
+            label = ""
+            if self._chain_get_ready_next_phase == "hard":
+                label = "HARD"
+            elif self._chain_get_ready_next_phase == "apply":
+                label = "APPLY"
+            self.wiz_preview.set_get_ready(self._chain_get_ready_remaining, label)
+            self.lbl_wiz_status.setText(
+                f"Switching to {label} in {self._chain_get_ready_remaining}s -- get ready..."
+            )
+            return
+        self._chain_get_ready_timer.stop()
+        self.wiz_preview.set_get_ready(None)
+        next_phase = self._chain_get_ready_next_phase
+        self._chain_get_ready_next_phase = None
+        if next_phase == "hard":
+            self._start_capture("hard")
+        elif next_phase == "apply":
+            self._apply_suggested()
 
     @staticmethod
     def _mag(e: dict) -> float:
@@ -2033,40 +2261,126 @@ class SettingsWindow(QWidget):
             )
 
     def on_impact_event(self, event: dict):
-        self.wiz_preview.set_last_hit(
-            int(event.get("impact_x", 0)),
-            int(event.get("impact_y", 0)),
-            int(event.get("redness", 0)),
-        )
+        # Read both the new canonical keys and the legacy ones so old
+        # event producers don't break the preview if they're still
+        # around. Without this fallback the dot was stuck at (0, 0)
+        # because the producer historically only set x_mg/y_mg.
+        contact_x = int(event.get("contact_x", event.get("impact_x", 0)))
+        contact_y = int(event.get("contact_y", event.get("impact_y", 0)))
+        redness = int(event.get("redness", event.get("intensity", 0)))
+        # Raw accelerometer readings -- the calibration wizard's whole
+        # job is to derive `impact_mg_100` and `contact_full_scale_mg`
+        # from these numbers, so they MUST drive the preview. Painting
+        # from contact_x/y instead leaves the dot stuck at (0, 0) when
+        # the current calibration is far off (which is exactly when
+        # the user is running the wizard). When a frame arrives without
+        # raw mg (eg. legacy 16-byte payloads pre-extended impact
+        # struct), we fall back to the calibration-mapped contact_x/y.
+        x_mg = int(event.get("x_mg", 0))
+        y_mg = int(event.get("y_mg", 0))
+        mag_mg = int(event.get("mag_mg", 0))
+        if x_mg or y_mg or mag_mg:
+            self.wiz_preview.set_last_hit_from_raw_mg(x_mg, y_mg, mag_mg)
+        else:
+            self.wiz_preview.set_last_hit(contact_x, contact_y, redness)
+        # Pulse the preview on EVERY impact, regardless of capture
+        # mode. This makes the wizard visibly react to each hit so the
+        # user can confirm BLE detection is alive even before clicking
+        # CAPTURE SOFT / CAPTURE HARD.
+        self.wiz_preview.trigger_hit_pulse()
+        valid = bool(event.get("valid", True))
+        intensity = int(event.get("intensity", redness))
+        # Always refresh the wizard status with the latest hit so the
+        # operator sees per-impact feedback even between captures.
         if self._capture_mode is None:
+            self.lbl_wiz_status.setText(
+                f"Detected hit #{self.wiz_preview.hits_detected()} | "
+                f"mag {mag_mg}mg | lateral ({x_mg:+d}, {y_mg:+d})mg | "
+                f"valid={'yes' if valid else 'no'} | "
+                f"intensity {intensity}%"
+            )
             return
         target = self._soft_samples if self._capture_mode == "soft" else self._hard_samples
         if len(target) >= self._capture_target:
             return
+        # Skip frames whose magnitude is zero -- those are not real
+        # captures (eg. heartbeat-only impact frame). Sub-threshold
+        # frames with non-zero raw mg ARE captured: the suggested
+        # calibration is computed from their distribution, so we want
+        # them in the pool even when the firmware flagged valid=false.
+        if mag_mg <= 0 and not (x_mg or y_mg):
+            return
         target.append(event)
         remaining = self._capture_target - len(target)
+        # Update the big "X to go" overlay on the ball every hit.
+        self.wiz_preview.set_countdown(remaining, self._capture_target)
         if remaining > 0:
             self.lbl_wiz_status.setText(
-                f"{self._capture_mode.title()} capture: {remaining} hit(s) remaining..."
+                f"{self._capture_mode.title()} capture: {remaining} of "
+                f"{self._capture_target} hits remaining..."
             )
             return
-        self.lbl_wiz_status.setText(f"{self._capture_mode.title()} capture complete.")
+        finished_mode = self._capture_mode
+        self.lbl_wiz_status.setText(
+            f"{finished_mode.title()} capture complete -- {self._capture_target} hits collected."
+        )
         self._capture_mode = None
         self.wiz_preview.set_mode(None)
-        self.lbl_wizard_help.setText(
-            "Capture complete for this step. Continue with the next capture or apply suggestion."
-        )
+        self.wiz_preview.set_countdown(None)
         self._update_wizard_summary()
+        if self._chain_running:
+            # Auto-advance: soft -> hard -> apply, with a brief
+            # "get ready" countdown so the user has time to switch
+            # from soft to hard hitting (or to step back before we
+            # write to firmware).
+            if finished_mode == "soft":
+                self.lbl_wizard_help.setText(
+                    "Soft hits banked. Switching to HARD hits in a moment."
+                )
+                self._begin_get_ready("hard", "HARD", seconds=3)
+            elif finished_mode == "hard":
+                self.lbl_wizard_help.setText(
+                    "Hard hits banked. Applying suggested calibration..."
+                )
+                self._begin_get_ready("apply", "APPLY", seconds=2)
+        else:
+            self.lbl_wizard_help.setText(
+                "Capture complete for this step. Continue with the next "
+                "capture or apply suggestion."
+            )
 
     def _apply_suggested(self):
         if self._suggested_impact_mg_100 is None or self._suggested_contact_full_scale_mg is None:
             self.lbl_wiz_status.setText("Capture soft + hard sets first.")
+            # Chain can't continue without a full data set; clear the
+            # flag so we don't strand the user in a half-running state.
+            self._chain_running = False
+            self.wiz_preview.set_countdown(None)
+            self.wiz_preview.set_get_ready(None)
             return
         self.cal_impact_input.setText(str(self._suggested_impact_mg_100))
         self.cal_contact_input.setText(str(self._suggested_contact_full_scale_mg))
         self._apply_calibration_from_inputs()
-        self.lbl_wiz_status.setText("Applied suggested calibration to firmware RAM.")
-        self.lbl_wizard_help.setText("Suggested calibration applied. Save to firmware when ready.")
+        # Clean up any countdown/get-ready overlays now that the chain
+        # has produced a result.
+        self.wiz_preview.set_countdown(None)
+        self.wiz_preview.set_get_ready(None)
+        if self._chain_running:
+            self._chain_running = False
+            self.lbl_wiz_status.setText(
+                "Calibration complete -- suggested values applied to firmware RAM. "
+                "Click SAVE TO FW to persist."
+            )
+            self.lbl_wizard_help.setText(
+                "Guided calibration done. Press SAVE TO FW to make the new "
+                "values stick across reboots, or RUN GUIDED CALIBRATION again "
+                "to redo it."
+            )
+        else:
+            self.lbl_wiz_status.setText("Applied suggested calibration to firmware RAM.")
+            self.lbl_wizard_help.setText(
+                "Suggested calibration applied. Save to firmware when ready."
+            )
 
 
 class TennisBleWorker(QObject):
@@ -5360,13 +5674,18 @@ class TennisDashboard(QMainWindow):
                 self._arm_tilt_axis,
                 int(valid),
             )
-        if not valid:
-            # Don't book-keep impact-x/y for a frame the firmware itself
-            # said wasn't a real impact -- those bytes will be zero. The
-            # tilt above is already saved.
-            return
-        self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
-        self._last_impact_reading = (contact_x, contact_y, intensity)
+        # LIVE shot pipeline only consumes valid impacts -- we don't
+        # want sub-threshold noise to pair with a main-hall hit and
+        # contaminate shot history. But the calibration wizard wants
+        # to see EVERY captured impact (including sub-threshold ones)
+        # because the calibration we're trying to fix is precisely
+        # what defines "valid". Without this, a too-high
+        # `minValidImpactMg` threshold would silently filter out the
+        # very hits the wizard needs to recommend a lower threshold
+        # -- the chicken-and-egg bug spotted during bench bring-up.
+        if valid:
+            self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
+            self._last_impact_reading = (contact_x, contact_y, intensity)
         event = {
             "hit_count": hit_count,
             "x_mg": x_mg,
@@ -5379,6 +5698,18 @@ class TennisDashboard(QMainWindow):
             "baseline_y_mg": baseline_y_mg,
             "baseline_z_mg": baseline_z_mg,
             "tilt_deg": tilt_deg,
+            # Racket-face contact coordinates (signed -100..+100 from
+            # firmware's toContactCoord) and intensity-as-redness. The
+            # firmware now emits real values for these even on sub-
+            # threshold hits (it used to zero them out, which broke
+            # the calibration wizard). We still hand them through so
+            # the wizard can fall back to them when the raw lateral
+            # mg signal is unavailable (eg. legacy 16-byte frames).
+            "contact_x": int(contact_x),
+            "contact_y": int(contact_y),
+            "impact_x": int(contact_x),
+            "impact_y": int(contact_y),
+            "redness": int(intensity),
         }
         for w in self._hardware_settings_windows():
             w.on_impact_event(event)

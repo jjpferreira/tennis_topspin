@@ -298,6 +298,285 @@ def test_impact_signal_carries_orientation_fields():
     ) in src
 
 
+def test_calibration_wizard_preview_reacts_to_every_impact():
+    """Regression guard: the calibration wizard's ball preview MUST
+    show a visible reaction (pulse + counter) on every impact event,
+    even outside CAPTURE mode and even when the impact's contact
+    coordinates are zero (common with a misconfigured ADXL where
+    contact_x/y get zeroed in the firmware's invalid path).
+
+    The historical bug: _on_impact_packet shipped event keys
+    `x_mg/y_mg/intensity` but the wizard read `impact_x/impact_y/
+    redness`, so set_last_hit was always called with (0, 0, 0). The
+    preview dot stayed dead center with no glow and the wizard looked
+    broken even though impacts were arriving correctly over BLE.
+    """
+    src = read_app()
+
+    # Backend: event dict carries the keys the preview reads, so
+    # set_last_hit gets non-zero arguments on real hits.
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    pbody = pkt.group(0)
+    assert '"contact_x": int(contact_x),' in pbody
+    assert '"contact_y": int(contact_y),' in pbody
+    assert '"redness": int(intensity),' in pbody
+
+    # Preview widget exposes a per-hit pulse + counter so the operator
+    # gets unambiguous "saw a hit" feedback even when the dot lands at
+    # (0, 0). Both are exercised on every impact event by the wizard.
+    assert "def trigger_hit_pulse(self):" in src
+    assert "def hits_detected(self) -> int:" in src
+    assert "def reset_hit_counter(self):" in src
+    assert "self._pulse_strength" in src
+    assert "self._hits_detected" in src
+
+    # Wizard wires the pulse + counter on every impact, BEFORE the
+    # capture-mode early return, so preview reacts in idle mode too.
+    wiz = re.search(
+        r"def on_impact_event\(self, event: dict\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert wiz, "wizard on_impact_event block not found"
+    wbody = wiz.group(0)
+    assert "self.wiz_preview.trigger_hit_pulse()" in wbody
+    assert 'event.get("contact_x", event.get("impact_x", 0))' in wbody
+    assert 'event.get("contact_y", event.get("impact_y", 0))' in wbody
+    assert 'event.get("redness", event.get("intensity", 0))' in wbody
+    # The trigger_hit_pulse() call must happen before any
+    # capture-mode early return, otherwise idle preview is dead again.
+    pulse_idx = wbody.index("self.wiz_preview.trigger_hit_pulse()")
+    return_idx = wbody.index("return")
+    assert pulse_idx < return_idx, (
+        "trigger_hit_pulse() must run before the capture-mode return; "
+        "otherwise the preview only animates while CAPTURE SOFT/HARD "
+        "is armed and looks broken in idle mode."
+    )
+
+    # Per-hit status text in idle mode so the operator sees something
+    # in addition to the visual pulse.
+    assert "Detected hit #" in wbody
+    assert "intensity {intensity}%" in wbody
+
+
+def test_impact_packet_forwards_to_calibration_wizard_even_when_invalid():
+    """Regression guard: the calibration wizard MUST receive every
+    captured impact, including those flagged `valid=False`. The
+    chicken-and-egg bug we are pinning here:
+        - LIVE shot pipeline filters on valid (correct).
+        - But the wizard is what TUNES the threshold that decides
+          `valid`. If we drop sub-threshold impacts before they reach
+          the wizard, the wizard cannot recommend a lower threshold
+          and the user is stuck whenever calibration is too high.
+
+    The fix: gate ONLY the LIVE book-keeping on `valid`; always forward
+    the event dict to hardware-settings windows.
+    """
+    src = read_app()
+
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    pbody = pkt.group(0)
+
+    # Forwarding loop runs unconditionally.
+    forward_idx = pbody.index("for w in self._hardware_settings_windows():")
+
+    # The pre-fix shape was `if not valid: return` *above* the
+    # forwarding loop. Pin its absence: if the loop is gated on the
+    # valid flag, the wizard is dead again on bench bring-up.
+    bad_pattern = re.compile(r"if not valid:\s*\n\s*#[^\n]*\n(\s*#[^\n]*\n)*\s*return\s*\n[\s\S]*for w in self\._hardware_settings_windows")
+    assert not bad_pattern.search(pbody), (
+        "if not valid: return must NOT precede the wizard-forwarding "
+        "loop -- otherwise sub-threshold impacts can't be used to "
+        "re-calibrate the threshold."
+    )
+
+    # LIVE book-keeping IS gated on valid (otherwise sub-threshold
+    # noise pollutes shot history).
+    valid_gate = re.search(
+        r"if valid:\s*\n\s*self\._impact_by_hit_count\[hit_count\]",
+        pbody,
+    )
+    assert valid_gate, (
+        "self._impact_by_hit_count[...] must only run when valid -- "
+        "otherwise sub-threshold ADXL noise leaks into LIVE shots."
+    )
+
+    # And the gate must be ABOVE the forwarding loop (so we update
+    # book-keeping first, then notify wizards).
+    assert valid_gate.start() < forward_idx
+
+
+def test_calibration_wizard_paints_preview_from_raw_lateral_mg():
+    """Regression guard: the wizard's preview dot MUST be painted from
+    the accelerometer's raw `x_mg`/`y_mg`/`mag_mg`, not from the
+    calibration-mapped `contact_x`/`contact_y`.
+
+    Why: the whole point of the wizard is to FIX a bad calibration. If
+    we paint the dot from the firmware's already-mapped contact_x/y,
+    the dot stays at (0, 0) when the current `contact_full_scale_mg`
+    is too high -- exactly when the user is running the wizard.
+    Painting from raw mg lets the dot land where the ADXL says the
+    racket struck the ball, regardless of the current calibration.
+    """
+    src = read_app()
+
+    # New helper on the preview widget that maps raw mg to a
+    # calibration-independent preview scale.
+    helper = re.search(
+        r"def set_last_hit_from_raw_mg\(.*?\n        self\.update\(\)\s*\n",
+        src,
+        flags=re.S,
+    )
+    assert helper, "set_last_hit_from_raw_mg helper missing"
+    hbody = helper.group(0)
+    assert "lateral_full_scale_mg" in hbody
+    assert "impact_full_scale_mg" in hbody
+    assert "self._last_x" in hbody
+    assert "self._last_y" in hbody
+    assert "self._last_redness" in hbody
+
+    # Wizard uses the raw-mg helper when raw values are available,
+    # falls back to contact_x/y otherwise (legacy 16-byte frames).
+    wiz = re.search(
+        r"def on_impact_event\(self, event: dict\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert wiz, "wizard on_impact_event block not found"
+    wbody = wiz.group(0)
+    assert "self.wiz_preview.set_last_hit_from_raw_mg(x_mg, y_mg, mag_mg)" in wbody
+    # The fallback path is still wired in for legacy events.
+    assert "self.wiz_preview.set_last_hit(contact_x, contact_y, redness)" in wbody
+    # Idle status line shows raw accelerometer numbers, not just the
+    # already-clamped intensity %, so the user can read the actual
+    # signal off the sensor while calibrating.
+    assert "mag {mag_mg}mg" in wbody
+    assert "lateral ({x_mg:+d}, {y_mg:+d})mg" in wbody
+
+
+def test_calibration_wizard_captures_subthreshold_impacts_for_calibration():
+    """Regression guard: capture phases MUST collect impacts whose raw
+    magnitude is non-zero, regardless of the firmware's `valid` flag.
+    Otherwise the suggested calibration is computed from a biased pool
+    (only hits already above the current threshold) and can't lower
+    the threshold to track lighter strokes.
+    """
+    src = read_app()
+
+    wiz = re.search(
+        r"def on_impact_event\(self, event: dict\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert wiz, "wizard on_impact_event block not found"
+    wbody = wiz.group(0)
+
+    # Capture pool append must NOT be gated on `valid` -- the wizard
+    # explicitly wants sub-threshold samples to recommend a lower
+    # threshold.
+    assert "if not valid:\n            return\n        target.append" not in wbody
+    # We do skip empty frames (mag=0 and no lateral signal) since
+    # those carry no information.
+    assert "if mag_mg <= 0 and not (x_mg or y_mg):" in wbody
+
+
+def test_calibration_wizard_auto_chains_soft_hard_apply_with_countdown():
+    """Regression guard: the calibration wizard MUST offer a one-click
+    guided flow that auto-progresses soft -> hard -> apply once each
+    capture phase fills, with a visible countdown overlay on the ball
+    preview so the user can keep their eyes on the racket.
+
+    User-reported expectation: "as i hit it the counter comes down type
+    of thing, then should move to the next thing and next until it
+    finishes". Manual button-clicking between phases is brittle on a
+    tablet during live bring-up and was confusing operators.
+    """
+    src = read_app()
+
+    # 1) The preview widget exposes a countdown overlay that the
+    #    wizard updates per-hit, plus a between-phase "get ready"
+    #    overlay used for the soft->hard transition.
+    assert "def set_countdown(self, remaining: int | None, target: int | None = None):" in src
+    assert "def set_get_ready(self, seconds: int | None, label: str = \"\"):" in src
+    assert "self._countdown" in src
+    assert "self._get_ready" in src
+
+    # 2) A new top-level RUN GUIDED CALIBRATION button kicks off the
+    #    chain so the user does not need to click three buttons.
+    assert "self.btn_wiz_run_all" in src
+    assert "RUN GUIDED CALIBRATION" in src
+    assert "self.btn_wiz_run_all.clicked.connect(self._run_wizard_chain)" in src
+
+    # 3) The chain helper sets a flag the rest of the wizard reads
+    #    to decide whether to auto-advance. Without this flag the
+    #    manual buttons must keep working unchanged.
+    chain = re.search(
+        r"def _run_wizard_chain\(self\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert chain, "_run_wizard_chain block not found"
+    cbody = chain.group(0)
+    assert "self._chain_running = True" in cbody
+    assert 'self._start_capture("soft")' in cbody
+
+    # 4) Per-hit countdown is updated during capture so the ball
+    #    preview shows a big "X to go" number that ticks down.
+    wiz = re.search(
+        r"def on_impact_event\(self, event: dict\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert wiz, "on_impact_event block not found"
+    wbody = wiz.group(0)
+    assert "self.wiz_preview.set_countdown(remaining, self._capture_target)" in wbody
+    # Count-down style text in the status line ("X of Y hits remaining").
+    assert "of " in wbody and "hits remaining" in wbody
+
+    # 5) When a phase completes WHILE chain is running, we transition
+    #    to the next one with a visible "get ready" countdown rather
+    #    than dropping back to idle. Soft -> HARD, Hard -> APPLY.
+    assert "if self._chain_running:" in wbody
+    assert 'self._begin_get_ready("hard"' in wbody
+    assert 'self._begin_get_ready("apply"' in wbody
+
+    # 6) The get-ready timer ticks once per second and then either
+    #    starts the next capture or applies the suggested calibration.
+    tick = re.search(
+        r"def _on_chain_get_ready_tick\(self\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert tick, "_on_chain_get_ready_tick block not found"
+    tbody = tick.group(0)
+    assert 'self._start_capture("hard")' in tbody
+    assert "self._apply_suggested()" in tbody
+
+    # 7) Apply step closes the chain and clears the overlays so a
+    #    re-run from idle starts fresh. Without this, an aborted
+    #    chain would leave a dangling countdown on the preview.
+    apply_blk = re.search(
+        r"def _apply_suggested\(self\):.*?(?=\n    def |\nclass )",
+        src,
+        flags=re.S,
+    )
+    assert apply_blk, "_apply_suggested block not found"
+    abody = apply_blk.group(0)
+    assert "self._chain_running = False" in abody
+    assert "self.wiz_preview.set_countdown(None)" in abody
+    assert "self.wiz_preview.set_get_ready(None)" in abody
+
+
 def test_arm_tilt_derived_on_host_with_configurable_axis_projection():
     """Regression guard: the host MUST derive arm tilt from the raw
     gravity baseline using a configurable 2D projection, not just trust
@@ -373,16 +652,22 @@ def test_arm_tilt_refreshes_from_gravity_baseline_even_when_impact_invalid():
     body = pkt.group(0)
 
     # The order matters: gravity refresh must come BEFORE the validity
-    # short-circuit. We verify by character offset.
+    # gate that controls LIVE shot book-keeping. We verify by character
+    # offset.
     gravity_idx = body.index("if gravity_present:")
-    invalid_idx = body.index("if not valid:")
-    assert gravity_idx < invalid_idx, (
+    valid_gate_idx = body.index(
+        "if valid:\n            self._impact_by_hit_count[hit_count]"
+    )
+    assert gravity_idx < valid_gate_idx, (
         "Tilt refresh from the gravity baseline must happen BEFORE the "
-        "`if not valid: return` early-out, otherwise weak/invalid impacts "
+        "`if valid:` LIVE-bookkeeping gate, otherwise weak/invalid impacts "
         "(common on a misconfigured ADXL335) silently drop arm-angle data."
     )
 
-    # And we still skip impact-x/y bookkeeping on invalid frames.
+    # We still skip impact-x/y bookkeeping for the LIVE shot pipeline
+    # on invalid frames -- but the calibration wizard receives them
+    # regardless (pinned by
+    # test_impact_packet_forwards_to_calibration_wizard_even_when_invalid).
     assert "self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)" in body
 
 

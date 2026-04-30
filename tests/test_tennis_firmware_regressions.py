@@ -485,15 +485,40 @@ def test_tennis_firmware_impact_payload_carries_baseline_gravity_and_tilt():
     # accelerometer impact. A misconfigured ADXL335 (floating axis pin
     # reading ~3700 mg instead of ~1000 mg) would otherwise leave the
     # dashboard's arm-angle slider permanently on the simulator value.
-    # The previous `if (!impact.valid) return;` early-out is gone; the
-    # `valid` flag is still honored on the host so impact x/y stays
-    # zeroed for invalid frames.
+    # The previous `if (!impact.valid) return;` early-out is gone.
     assert "if (!impact.valid) {\n            return;" not in sketch
     # Boot-time health gate: warn loudly when the resting baseline is
     # outside 700-1300 mg, which is the smoking-gun symptom of a wiring
     # / power problem on the accelerometer.
     assert "[ADXL] baseline UNHEALTHY:" in sketch
     assert "[ADXL] baseline OK:" in sketch
+
+    # The measured lateral mg + contact-coord must NOT be zeroed when
+    # the firmware flags a hit as invalid. The host's calibration
+    # wizard derives `impact_mg_100` and `contact_full_scale_mg` from
+    # those raw numbers, so zeroing them when the current threshold
+    # rejects the hit creates an unrecoverable chicken-and-egg: the
+    # threshold can never come down because no sub-threshold sample
+    # ever reaches the wizard with non-zero lateral data.
+    assert "_lastImpact.xMg = xMg;" in adxl_cpp
+    assert "_lastImpact.yMg = yMg;" in adxl_cpp
+    assert "_lastImpact.zMg = zMg;" in adxl_cpp
+    assert "validImpact ? xMg : 0" not in adxl_cpp
+    assert "validImpact ? yMg : 0" not in adxl_cpp
+    assert "validImpact ? zMg : 0" not in adxl_cpp
+    # Contact coords likewise computed from raw lateral mg on every
+    # impact; the host can interpret them knowing `valid=false` if it
+    # cares about strict gating.
+    assert (
+        "_lastImpact.contactX = toContactCoord(\n        xMg, "
+        "static_cast<int16_t>(_calibration.contactFullScaleMg)\n    );"
+        in adxl_cpp
+    )
+    assert (
+        "_lastImpact.contactY = toContactCoord(\n        yMg, "
+        "static_cast<int16_t>(_calibration.contactFullScaleMg)\n    );"
+        in adxl_cpp
+    )
 
 
 def test_tennis_firmware_loop_keeps_commands_deferred_and_non_blocking():
