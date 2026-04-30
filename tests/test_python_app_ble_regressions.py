@@ -81,3 +81,29 @@ def test_live_speed_prefers_gate_packets_with_count_based_shot_append():
     assert "self._last_gate_speed_mph" in telemetry_fn.group(0)
     assert "model_speed = max(" in telemetry_fn.group(0)
     assert "if (now - self._last_gate_speed_ts) <= 0.35 and self._last_gate_speed_mph > 0.1:" in telemetry_fn.group(0)
+
+
+def test_gate_speed_packets_are_logged_so_pipeline_is_visible_in_logs():
+    """Regression guard for the silent gate-speed handler.
+
+    The original `_on_gate_speed` only emitted the Qt signal and never logged,
+    so when speed samples failed to appear in the UI it was impossible to tell
+    from the log file whether the firmware never sent a packet or the Python
+    side dropped/parsed it incorrectly. Every other notify handler logs at
+    INFO via _diag, so gate-speed must too -- otherwise we are blind exactly
+    where it matters most for ball-speed debugging.
+    """
+    src = read_app()
+
+    gate_fn = re.search(
+        r"def _on_gate_speed\(self, _sender, data: bytearray\):.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert gate_fn, "_on_gate_speed block not found"
+    body = gate_fn.group(0)
+    assert "GATE-SPEED sample #" in body
+    assert "ble_log.info(" in body
+    # Short/garbled packets must not be dropped silently either: a warning
+    # gets emitted so we can spot a payload-shape mismatch immediately.
+    assert "GATE-SPEED packet too short" in body

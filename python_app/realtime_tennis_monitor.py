@@ -2579,20 +2579,49 @@ class TennisBleWorker(QObject):
                 "<IhhhHBbbB", bytes(data[:16])
             )
             valid = 1 if (flags & 0x01) else 0
+            self._diag(
+                "impact",
+                f"hits={hit_count} mag={mag_mg}mg intensity={intensity} valid={valid}",
+            )
             self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
         elif len(data) >= 13:
             hit_count, x_mg, y_mg, z_mg, intensity, contact_x, contact_y = struct.unpack("<IhhhBbb", bytes(data[:13]))
             mag_mg = int(math.sqrt(float(x_mg * x_mg + y_mg * y_mg + z_mg * z_mg)))
             valid = 1 if intensity > 0 else 0
+            self._diag(
+                "impact",
+                f"hits={hit_count} mag={mag_mg}mg intensity={intensity} valid={valid} (legacy13)",
+            )
             self.impact.emit(hit_count, x_mg, y_mg, z_mg, mag_mg, intensity, contact_x, contact_y, valid)
 
     def _on_gate_speed(self, _sender, data: bytearray):
+        # Surface every gate-speed packet at INFO so the operator can confirm
+        # firmware<->app delivery without needing the ESP32 serial monitor.
+        # The previous implementation only emitted the Qt signal, which made
+        # it impossible to tell from the log whether the firmware never
+        # produced a sample or the packet was being silently dropped on the
+        # Python side.
         if len(data) >= 10:
             sample_id, speed_kmh_x10, transit_us = struct.unpack("<IHI", bytes(data[:10]))
-            self.gate_speed.emit(sample_id, speed_kmh_x10, int(transit_us / 1000))
+            transit_ms = int(transit_us / 1000)
+            speed_kmh = speed_kmh_x10 / 10.0
+            ble_log.info(
+                "GATE-SPEED sample #%d speed=%.1fkm/h transit=%dms (raw=%dus)",
+                sample_id, speed_kmh, transit_ms, transit_us,
+            )
+            self.gate_speed.emit(sample_id, speed_kmh_x10, transit_ms)
         elif len(data) >= 8:
             sample_id, speed_kmh_x10, transit_ms = struct.unpack("<IHH", bytes(data[:8]))
+            speed_kmh = speed_kmh_x10 / 10.0
+            ble_log.info(
+                "GATE-SPEED sample #%d speed=%.1fkm/h transit=%dms (legacy8)",
+                sample_id, speed_kmh, transit_ms,
+            )
             self.gate_speed.emit(sample_id, speed_kmh_x10, transit_ms)
+        else:
+            ble_log.warning(
+                "GATE-SPEED packet too short: len=%d (expected >=8)", len(data),
+            )
 
     def _on_health(self, _sender, data: bytearray):
         # Layout (LE):

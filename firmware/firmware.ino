@@ -592,6 +592,14 @@ void setup() {
     ledHandler.begin();
 #endif
     bleHandler.begin();
+    // Re-source the BLE-advertised build stamp from THIS translation unit so
+    // it always reflects the most-recently-compiled firmware. ble_handler.cpp
+    // also sets a default value at begin(), but Arduino IDE's incremental
+    // build can leave that file's __TIME__ frozen at an older compile while
+    // firmware.ino is fresh — which silently lies to the dashboard about
+    // what's actually running. Doing it here guarantees the stamp matches
+    // the user's latest source edits.
+    bleHandler.setFirmwareInfoString(FIRMWARE_INFO_STRING);
     bleHandler.startAdvertising();
     g_lastStreamKeepaliveMs = millis();
 

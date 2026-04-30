@@ -52,6 +52,17 @@ public:
     /** Number of GATT characteristics created on the tennis service. */
     uint8_t characteristicCount() const;
 
+    /**
+     * Override the firmware-version characteristic value at runtime. We expose
+     * this so the build stamp can be expanded inside the main sketch (which is
+     * always recompiled when the user edits firmware logic). Without this,
+     * Arduino IDE's incremental compilation can leave ble_handler.cpp's
+     * __TIME__ constant frozen at an older value while the rest of the
+     * firmware is fresh — making the BLE-reported build stamp lie about what
+     * is actually running on the chip.
+     */
+    void setFirmwareInfoString(const char* utf8);
+
     void pushTelemetry(uint8_t state, uint32_t count, uint16_t rateX10, uint16_t rpmX10);
     void pushImpact(
         uint32_t hitCount,

@@ -144,6 +144,14 @@ void BLEHandler::notifyCommandAck(const char* utf8) {
     _commandChar->notify();
 }
 
+void BLEHandler::setFirmwareInfoString(const char* utf8) {
+    if (!_fwVersionChar || !utf8) {
+        return;
+    }
+    _fwVersionChar->setValue(utf8);
+    Logger::info(String("[GATT] fw-version override: ") + utf8);
+}
+
 void BLEHandler::setupAdvertising() {
     _advertising = BLEDevice::getAdvertising();
     _advertising->addServiceUUID(TENNIS_SERVICE_UUID);

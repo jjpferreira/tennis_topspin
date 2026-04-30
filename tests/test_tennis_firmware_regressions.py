@@ -167,6 +167,19 @@ def test_tennis_firmware_version_is_published_over_ble():
     assert "_fwVersionChar->setValue(FIRMWARE_INFO_STRING)" in ble_handler_cpp
     assert "PROPERTY_READ" in ble_handler_cpp
 
+    # Build-stamp robustness: the BLE-reported firmware version MUST be
+    # re-set at boot from firmware.ino so the value tracks the user's most
+    # recent compile, not whatever __TIME__ was baked into ble_handler.cpp
+    # the last time it was incrementally rebuilt. Otherwise the dashboard
+    # silently lies about which firmware is on the chip — exactly the
+    # failure mode that wasted ~30 minutes of debugging when bidirectional
+    # gate-speed code was on the device but the BLE stamp pointed at an
+    # older build.
+    sketch = read_text(SKETCH)
+    assert "void setFirmwareInfoString(const char* utf8);" in ble_handler_h
+    assert "void BLEHandler::setFirmwareInfoString" in ble_handler_cpp
+    assert "bleHandler.setFirmwareInfoString(FIRMWARE_INFO_STRING);" in sketch
+
 
 def test_tennis_ble_contract_has_service_and_expected_characteristics():
     ble_constants = read_text(BLE_CONSTANTS_H)
