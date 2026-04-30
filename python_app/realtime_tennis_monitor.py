@@ -124,7 +124,7 @@ from PyQt6.QtWidgets import (
 )
 
 # BLE UUIDs (must match firmware)
-TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914c"  # advertised; ble_constants.h
+TENNIS_SERVICE_UUID = "7f4af201-1fb5-459e-8fcc-c5c9c331914d"  # advertised; ble_constants.h
 SENSOR_STATE_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a1"
 HIT_COUNT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a2"
 RATE_X10_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a3"
