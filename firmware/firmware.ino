@@ -491,13 +491,11 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
             impact.baselineZMg,
             impact.tiltDeg
         );
-        TENNIS_LOG_INFO(
-            "[ARM] hit=%lu tilt=%d deg gravity_mg=(%d,%d,%d)",
-            static_cast<unsigned long>(sensor.getHitCount()),
-            static_cast<int>(impact.tiltDeg),
-            static_cast<int>(impact.baselineXMg),
-            static_cast<int>(impact.baselineYMg),
-            static_cast<int>(impact.baselineZMg)
+        Logger::info(
+            String("[ARM] hit=") + sensor.getHitCount() +
+            " tilt=" + impact.tiltDeg + " deg" +
+            " gravity_mg=(" + impact.baselineXMg + "," + impact.baselineYMg +
+            "," + impact.baselineZMg + ")"
         );
     }
 }
