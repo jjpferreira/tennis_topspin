@@ -134,6 +134,13 @@ IMPACT_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a5"
 GATE_SPEED_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a6"
 HEALTH_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a8"
 FW_VERSION_UUID = "7be5483e-36e1-4688-b7f5-ea07361b26a9"
+LEGACY_FIVE_CHAR_UUIDS = {
+    SENSOR_STATE_UUID.lower(),
+    HIT_COUNT_UUID.lower(),
+    RATE_X10_UUID.lower(),
+    IMPACT_UUID.lower(),
+    RPM_X10_UUID.lower(),
+}
 NAME_PREFIX = "TENNIS_KY003"
 BLE_DISCOVER_TIMEOUT_S = 5.0
 AUTO_DISCOVER_ON_START = True
@@ -2254,6 +2261,9 @@ class TennisBleWorker(QObject):
                 cache_looks_stale = (
                     0 < discovered_count < self._EXPECTED_MIN_CHARACTERISTICS
                 )
+                legacy_profile_detected = (
+                    self._available_char_uuids == LEGACY_FIVE_CHAR_UUIDS
+                )
                 if cache_looks_stale:
                     ble_log.warning(
                         "GATT looks stale: only %d characteristics discovered "
@@ -2261,6 +2271,17 @@ class TennisBleWorker(QObject):
                         discovered_count,
                         self._EXPECTED_MIN_CHARACTERISTICS,
                     )
+                    if legacy_profile_detected:
+                        ble_log.warning(
+                            "Detected legacy 5-characteristic profile "
+                            "(state/count/rate/impact/rpm): gate-speed, health, "
+                            "fw-version, and command channels are unavailable."
+                        )
+                        self.status.emit(
+                            "START/END GATE BLOCKED: connected profile exposes "
+                            "only state/count/rate/impact/rpm. Reflash latest "
+                            "firmware and 'Forget Device' in macOS Bluetooth."
+                        )
                 else:
                     ble_log.info(
                         "GATT looks healthy: %d characteristics discovered.",
@@ -2353,7 +2374,7 @@ class TennisBleWorker(QObject):
                 else:
                     ble_log.warning(
                         "FW_VERSION_UUID not present in GATT — older firmware "
-                        "(re-flash to expose build stamp)."
+                        "or stale/legacy cached profile."
                     )
                     self.firmware_info.emit("legacy (no version characteristic)")
                 if HEALTH_UUID.lower() in self._available_char_uuids:
@@ -2367,7 +2388,10 @@ class TennisBleWorker(QObject):
                     # On macOS Bleak silently accepts non-existent UUIDs, so we
                     # MUST gate on the discovered service table or we will sit
                     # forever on "Listening for first health frame".
-                    ble_log.warning("HEALTH_UUID not present in GATT table — older firmware.")
+                    ble_log.warning(
+                        "HEALTH_UUID not present in GATT table — older firmware "
+                        "or stale/legacy cached profile."
+                    )
                     self.status.emit("Sensor health characteristic unavailable on this firmware.")
                 command_notify_ok = bool(self._command_notify_uuid)
                 if command_notify_ok:
