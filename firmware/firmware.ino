@@ -137,16 +137,29 @@ static String rpmConfigToText() {
 
 static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
     if (g_gateSpeed.awaitingEnd && (nowUs - g_gateSpeed.startUs) > KY003_GATE_MAX_TRANSIT_US) {
+        Logger::warn(String("[GATE] timeout — pending start at ") + g_gateSpeed.startUs +
+                     "us exceeded max transit " + KY003_GATE_MAX_TRANSIT_US + "us");
         g_gateSpeed.awaitingEnd = false;
     }
     const bool hadPendingStart = g_gateSpeed.awaitingEnd;
     const uint32_t pendingStartUs = g_gateSpeed.startUs;
 
     if (startEdge) {
+        Logger::info(String("[GATE] start edge t=") + nowUs +
+                     "us (pendingBefore=" + (hadPendingStart ? "yes" : "no") + ")");
         g_gateSpeed.awaitingEnd = true;
         g_gateSpeed.startUs = nowUs;
     }
     if (!endEdge) {
+        return;
+    }
+
+    if (!startEdge && !hadPendingStart) {
+        // End edge fired but we never saw a start — common when the magnet is
+        // first swept B->A. Surface it so the operator can confirm wiring is
+        // alive on B even when the A->B handshake hasn't completed.
+        Logger::warn(String("[GATE] end edge t=") + nowUs +
+                     "us IGNORED — no pending start (sweep direction wrong?)");
         return;
     }
 
@@ -158,11 +171,16 @@ static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
     }
 
     if (nowUs <= startUs) {
+        Logger::warn(String("[GATE] end edge t=") + nowUs +
+                     "us <= startUs " + startUs + "us — clock anomaly, dropping");
         return;
     }
     uint32_t dtUs = nowUs - startUs;
     g_gateSpeed.awaitingEnd = false;
     if (dtUs < KY003_GATE_MIN_TRANSIT_US || dtUs > KY003_GATE_MAX_TRANSIT_US) {
+        Logger::warn(String("[GATE] end edge dt=") + dtUs +
+                     "us REJECTED (min=" + KY003_GATE_MIN_TRANSIT_US +
+                     "us max=" + KY003_GATE_MAX_TRANSIT_US + "us)");
         return;
     }
 
@@ -175,6 +193,9 @@ static void updateGateSpeedState(uint32_t nowUs, bool startEdge, bool endEdge) {
     g_gateSpeed.transitUs = dtUs;
     g_gateSpeed.speedKmhX10 = static_cast<uint16_t>(kmhX10f);
     g_gateSpeed.ready = true;
+    Logger::info(String("[GATE] sample #") + g_gateSpeed.sampleId +
+                 " dt=" + dtUs + "us speedKmhX10=" + g_gateSpeed.speedKmhX10 +
+                 " (distance=" + String(g_gateDistanceCm, 2) + "cm)");
 }
 
 static void applyImpactCalibration(const ImpactCalibration& cfg) {
@@ -366,6 +387,10 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
         s_wasConnected = false;
         g_streamTimeoutWarned = false;
         g_gateSpeed.ready = false;
+        // Avoid carrying a partially-armed gate sample across reconnects —
+        // otherwise the next end-gate edge could be paired with a long-stale
+        // start time and produce a junk speed.
+        g_gateSpeed.awaitingEnd = false;
         return;
     }
     if (!s_wasConnected) {
@@ -399,6 +424,9 @@ static void publishBleTelemetry(uint32_t nowMs, const SensorPipelineResult& sens
     }
 
     if (sensorResult.gateSpeedReady && g_gateSpeed.ready) {
+        Logger::info(String("[GATE-PUB] BLE notify sample #") + g_gateSpeed.sampleId +
+                     " speedKmhX10=" + g_gateSpeed.speedKmhX10 +
+                     " transitUs=" + g_gateSpeed.transitUs);
         bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitUs);
         g_gateSpeed.ready = false;
     }

@@ -388,6 +388,16 @@ def test_tennis_impact_sensor_module_is_wired_and_configured():
     assert "const bool hadPendingStart = g_gateSpeed.awaitingEnd;" in sketch
     assert "if (startEdge && hadPendingStart)" in sketch
     assert "bleHandler.pushGateSpeed(g_gateSpeed.sampleId, g_gateSpeed.speedKmhX10, g_gateSpeed.transitUs);" in sketch
+    # Diagnostic logs must remain so we can see why a gate sample fails when
+    # the magnet sweep is reportedly working but no speed packet arrives.
+    assert "[GATE] start edge t=" in sketch
+    assert "[GATE] sample #" in sketch
+    assert "[GATE] end edge dt=" in sketch
+    assert "[GATE] timeout" in sketch
+    assert "IGNORED — no pending start" in sketch
+    assert "[GATE-PUB] BLE notify sample #" in sketch
+    # Reconnect-safety: do not let a stale armed start leak across sessions.
+    assert "g_gateSpeed.awaitingEnd = false;" in sketch
     assert "impact.magnitudeMg," in sketch
     assert "impact.valid" in sketch
 
