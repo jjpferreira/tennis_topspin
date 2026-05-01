@@ -869,3 +869,87 @@ def test_live_arm_angle_uses_measured_tilt_when_fresh():
     assert "arm_raw = float(self._last_arm_tilt_deg)" in tbody
     # The legacy synthetic path stays in place ONLY as the fallback.
     assert "random.uniform(-18.0, 18.0) + impact_x * 0.34" in tbody
+
+
+def test_pure_rotation_main_hall_pings_do_not_fabricate_shots():
+    """Regression guard: rotating the ball over the main hall sensor must
+    not create fake shots in shot history.
+
+    Symptom we're locking out: with the ball spinning past the magnet,
+    every count increment used to call `_append_shot(...)` with an
+    RPM-derived `model_speed` and `random.uniform(...)` filler for spin /
+    landing / face tilt. The user sees ghost shots they never hit.
+
+    Expected behaviour: a count delta is treated as a real swing only
+    when at least one of the following is true at the time the count
+    arrives:
+        (a) an ADXL impact frame was matched to this exact hit count,
+        (b) a valid impact frame arrived within the last 250 ms (BLE
+            ordering can race the count by a few ms), or
+        (c) a fresh gate A/B speed sample arrived within the last
+            500 ms (proves the ball moved through the gates).
+    Otherwise the loop just keeps RPM telemetry up to date and
+    `continue`s past _append_shot.
+    """
+    src = read_app()
+
+    # The new "evidence timestamp" must be defined and resettable.
+    assert "self._last_valid_impact_ts = 0.0" in src, (
+        "Expected _last_valid_impact_ts state field to gate fake shots."
+    )
+
+    # Stamped only when the impact frame is *valid* (sub-threshold noise
+    # must NOT count as a swing -- otherwise we'd just move the bug).
+    pkt = re.search(
+        r"def _on_impact_packet\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert pkt, "_on_impact_packet block not found"
+    pkt_body = pkt.group(0)
+    valid_branch = re.search(
+        r"if valid:.*?(?=\n        event = \{)",
+        pkt_body,
+        flags=re.S,
+    )
+    assert valid_branch, "valid-impact branch not found in _on_impact_packet"
+    assert "self._last_valid_impact_ts = time.time()" in valid_branch.group(0), (
+        "_last_valid_impact_ts must be stamped inside the `if valid:` block "
+        "so sub-threshold noise frames cannot fake a swing."
+    )
+
+    # _on_telemetry must guard _append_shot with the corroborating-evidence
+    # check before falling through to the synthetic shot reconstruction.
+    telemetry = re.search(
+        r"def _on_telemetry\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert telemetry, "_on_telemetry block not found"
+    tbody = telemetry.group(0)
+
+    assert "impact_recent = (" in tbody
+    assert "self._last_valid_impact_ts" in tbody
+    assert "(now_t - self._last_valid_impact_ts) <= 0.25" in tbody
+    assert "gate_recent = (" in tbody
+    assert "(now_t - self._last_gate_speed_ts) <= 0.5" in tbody
+    assert (
+        "if impact is None and not impact_recent and not gate_recent:" in tbody
+    ), (
+        "Expected the rotation-only guard `if impact is None and not "
+        "impact_recent and not gate_recent: continue` so pure RPM ticks "
+        "don't reach _append_shot."
+    )
+
+    # The guard must `continue` -- not fall through into the appending
+    # branch -- before the impact fallback assignment runs.
+    guard_pos = tbody.find(
+        "if impact is None and not impact_recent and not gate_recent:"
+    )
+    fallback_pos = tbody.find("if impact is None:\n                        impact = self._last_impact_reading")
+    append_pos = tbody.find("self._append_shot(")
+    assert 0 < guard_pos < fallback_pos < append_pos, (
+        "Rotation guard must come before the stale-impact fallback and the "
+        "_append_shot call, so a pure rotation ping is dropped instead of "
+        "fabricated as a shot using stale impact data."
+    )

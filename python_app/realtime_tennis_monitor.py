@@ -3147,6 +3147,11 @@ class TennisDashboard(QMainWindow):
         self._last_stream_recovery = 0.0
         self._impact_by_hit_count: dict[int, tuple[int, int, int]] = {}
         self._last_impact_reading = (0, 0, 0)
+        # Wall-clock of the most recent *valid* ADXL impact frame. Used by
+        # _on_count to distinguish a real swing (main-hall hit + recent
+        # impact) from the user just rotating the ball over the magnet
+        # (main-hall hits with no swing energy on the racket).
+        self._last_valid_impact_ts = 0.0
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
         # Latest accelerometer-derived racket tilt (degrees). Refreshed by
@@ -4981,6 +4986,7 @@ class TennisDashboard(QMainWindow):
         self._last_count_sample_ts = 0.0
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._last_valid_impact_ts = 0.0
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
         self._last_arm_tilt_deg = 0.0
@@ -5179,6 +5185,7 @@ class TennisDashboard(QMainWindow):
         self._worker = None
         self._impact_by_hit_count.clear()
         self._last_impact_reading = (0, 0, 0)
+        self._last_valid_impact_ts = 0.0
         self._last_gate_speed_mph = 0.0
         self._last_gate_speed_ts = 0.0
         self._last_arm_tilt_deg = 0.0
@@ -5289,6 +5296,7 @@ class TennisDashboard(QMainWindow):
             self.btn_connect.setText("CONNECT SENSOR")
             self._impact_by_hit_count.clear()
             self._last_impact_reading = (0, 0, 0)
+            self._last_valid_impact_ts = 0.0
             self._last_gate_speed_mph = 0.0
             self._last_gate_speed_ts = 0.0
             self._last_arm_tilt_deg = 0.0
@@ -5771,6 +5779,11 @@ class TennisDashboard(QMainWindow):
         if valid:
             self._impact_by_hit_count[hit_count] = (contact_x, contact_y, intensity)
             self._last_impact_reading = (contact_x, contact_y, intensity)
+            # Stamp wall-clock so _on_count can tolerate small BLE-ordering
+            # races: when the impact frame arrives a few ms AFTER the count
+            # frame for the same swing, the strict hit-count lookup misses,
+            # but a recent timestamp still tells us a real swing happened.
+            self._last_valid_impact_ts = time.time()
         event = {
             "hit_count": hit_count,
             "x_mg": x_mg,
@@ -5837,6 +5850,34 @@ class TennisDashboard(QMainWindow):
                 for i in range(steps):
                     event_count = prev + i + 1
                     impact = self._impact_by_hit_count.pop(event_count, None)
+                    # Only treat this main-hall hit as a real swing when we
+                    # have corroborating sensor evidence:
+                    #   (a) ADXL impact frame matched to this exact hit
+                    #       count, or arrived within the last ~250 ms (BLE
+                    #       notification ordering can race the count frame
+                    #       by a few ms), or
+                    #   (b) a fresh gate A/B speed sample within the last
+                    #       ~500 ms (proves the ball passed the gates).
+                    # Without this guard, the user spinning the ball over
+                    # the main hall sensor to test RPM would fabricate a
+                    # fake "shot" per rotation -- complete with synthesized
+                    # spin/landing/face-tilt -- because _append_shot was
+                    # called unconditionally on every count increment.
+                    now_t = time.time()
+                    impact_recent = (
+                        self._last_valid_impact_ts > 0.0
+                        and (now_t - self._last_valid_impact_ts) <= 0.25
+                    )
+                    gate_recent = (
+                        self._last_gate_speed_ts > 0.0
+                        and (now_t - self._last_gate_speed_ts) <= 0.5
+                        and self._last_gate_speed_mph > 0.1
+                    )
+                    if impact is None and not impact_recent and not gate_recent:
+                        # RPM/count telemetry was already updated above;
+                        # just skip the shot reconstruction so shot
+                        # history stays clean during pure rotation tests.
+                        continue
                     if impact is None:
                         impact = self._last_impact_reading
                     impact_x, impact_y, redness = impact
