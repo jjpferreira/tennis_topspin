@@ -953,3 +953,102 @@ def test_pure_rotation_main_hall_pings_do_not_fabricate_shots():
         "_append_shot call, so a pure rotation ping is dropped instead of "
         "fabricated as a shot using stale impact data."
     )
+
+
+def test_hardware_settings_exposes_gate_distance_controls():
+    """Regression guard: the user must be able to change the KY-003 gate
+    spacing from the Hardware Settings dialog without reflashing.
+
+    The firmware already exposes GATE:SET/SAVE/RESET BLE commands and the
+    Python side already parses GATE:CFG: replies. What this test pins is
+    that the dialog actually surfaces those primitives -- panel, input,
+    four buttons -- and that the dashboard plumbs the buttons through to
+    GATE:SET / GATE:SAVE / GATE:RESET / GATE:GET. Without this, every
+    rig-spacing change forced an arduino-cli reflash, which is exactly
+    the friction we're trying to remove.
+    """
+    src = read_app()
+
+    # Command constants exist alongside the calibration ones.
+    assert 'GATE_GET_COMMAND = "GATE:GET"' in src
+    assert 'GATE_SAVE_COMMAND = "GATE:SAVE"' in src
+    assert 'GATE_RESET_COMMAND = "GATE:RESET"' in src
+
+    # Settings window panel + controls.
+    assert 'QLabel("GATE SENSOR DISTANCE (FIRMWARE)")' in src
+    assert "self.gate_distance_input = QLineEdit(" in src
+    assert 'self.btn_gate_load = QPushButton("LOAD FW")' in src
+    assert 'self.btn_gate_apply = QPushButton("APPLY RAM")' in src
+    assert 'self.btn_gate_save = QPushButton("SAVE TO FW")' in src
+    assert 'self.btn_gate_reset = QPushButton("RESET DEFAULTS")' in src
+
+    # Buttons must connect to the right dashboard helpers.
+    assert (
+        "self.btn_gate_load.clicked.connect(self.dashboard._request_firmware_gate_distance)"
+        in src
+    )
+    assert (
+        "self.btn_gate_apply.clicked.connect(self._apply_gate_distance_from_inputs)"
+        in src
+    )
+    assert (
+        "self.btn_gate_save.clicked.connect(self.dashboard._save_firmware_gate_distance)"
+        in src
+    )
+    assert (
+        "self.btn_gate_reset.clicked.connect(self.dashboard._reset_firmware_gate_distance)"
+        in src
+    )
+
+    # Dashboard helpers must send the documented BLE commands.
+    apply_fn = re.search(
+        r"def _apply_firmware_gate_distance_from_ui\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert apply_fn, "_apply_firmware_gate_distance_from_ui not found"
+    apply_body = apply_fn.group(0)
+    # Host-side bound check matches firmware (firmware.ino: 0.5 .. 100.0 cm).
+    assert "cm < 0.5 or cm > 100.0" in apply_body
+    assert 'cmd = f"GATE:SET:{cm:.2f}"' in apply_body
+
+    save_fn = re.search(
+        r"def _save_firmware_gate_distance\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert save_fn and "GATE_SAVE_COMMAND" in save_fn.group(0)
+
+    reset_fn = re.search(
+        r"def _reset_firmware_gate_distance\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert reset_fn and "GATE_RESET_COMMAND" in reset_fn.group(0)
+
+    # GATE:CFG: reply must push into the UI so the input box reflects
+    # firmware truth (not whatever the operator last typed). Otherwise
+    # the user can't trust LOAD FW / RESET DEFAULTS.
+    rx_fn = re.search(
+        r"def _on_command_rx\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert rx_fn, "_on_command_rx block not found"
+    rx_body = rx_fn.group(0)
+    assert "self._refresh_gate_distance_ui()" in rx_body
+    assert 'text.startswith("GATE:SAVE:")' in rx_body
+    assert 'text.startswith("GATE:RESET:")' in rx_body
+    assert 'text.startswith("GATE:SET:")' in rx_body
+
+    # Opening the hardware settings screen should auto-fetch the value
+    # so the user never sees a stale input box.
+    open_fn = re.search(
+        r"def _open_hardware_settings_screen\(.*?(?=\n    def )",
+        src,
+        flags=re.S,
+    )
+    assert open_fn, "_open_hardware_settings_screen not found"
+    open_body = open_fn.group(0)
+    assert "self._refresh_gate_distance_ui()" in open_body
+    assert "self._request_firmware_gate_distance()" in open_body

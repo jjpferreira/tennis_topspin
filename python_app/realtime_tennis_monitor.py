@@ -167,6 +167,9 @@ MAX_SESSIONS_PER_STUDENT = 40
 CAL_GET_COMMAND = "CAL:GET"
 CAL_SAVE_COMMAND = "CAL:SAVE"
 CAL_RESET_COMMAND = "CAL:RESET"
+GATE_GET_COMMAND = "GATE:GET"
+GATE_SAVE_COMMAND = "GATE:SAVE"
+GATE_RESET_COMMAND = "GATE:RESET"
 COMPETITION_CONFIG_FILE = "competition_profiles.json"
 
 # Competition levels from beginner to pro
@@ -1723,6 +1726,54 @@ class SettingsWindow(QWidget):
         train_tab_lay.setSpacing(8)
         self.app_tabs.addTab(train_tab, "Training")
 
+        # ----- Gate Sensor Distance (firmware-pushed) -----
+        # Lives in NVS on the ESP32 so a reflash isn't required to change
+        # the centre-to-centre spacing of the two KY-003 gate sensors.
+        # APPLY RAM is non-persistent (good for quickly trying a value),
+        # SAVE TO FW writes to NVS so the firmware survives a reboot,
+        # RESET DEFAULTS reverts to the compile-time KY003_GATE_DISTANCE_CM.
+        gate_box = QFrame()
+        gate_box.setObjectName("Panel")
+        gate_lay = QVBoxLayout(gate_box)
+        gate_lay.setContentsMargins(10, 8, 10, 8)
+        gate_lay.setSpacing(6)
+        gate_lay.addWidget(QLabel("GATE SENSOR DISTANCE (FIRMWARE)"))
+        lbl_gate_help = QLabel(
+            "Centre-to-centre spacing of the two KY-003 gate sensors "
+            "(used to compute ball speed = distance / transit_time). "
+            "Update here whenever you reposition them physically -- the "
+            "firmware writes the value to NVS so it survives reboots."
+        )
+        lbl_gate_help.setObjectName("SmallMuted")
+        lbl_gate_help.setWordWrap(True)
+        gate_lay.addWidget(lbl_gate_help)
+        gate_grid = QGridLayout()
+        gate_grid.setHorizontalSpacing(8)
+        gate_grid.setVerticalSpacing(4)
+        self.gate_distance_input = QLineEdit(f"{HW_GATE_DISTANCE_CM:.2f}")
+        self.gate_distance_input.setToolTip(
+            "Allowed range: 0.5 - 100.0 cm (firmware enforces the same "
+            "bounds). Submit with APPLY RAM to test, then SAVE TO FW to "
+            "persist."
+        )
+        gate_grid.addWidget(QLabel("Gate distance (cm)"), 0, 0)
+        gate_grid.addWidget(self.gate_distance_input, 0, 1)
+        gate_lay.addLayout(gate_grid)
+        gate_btns = QHBoxLayout()
+        self.btn_gate_load = QPushButton("LOAD FW")
+        self.btn_gate_apply = QPushButton("APPLY RAM")
+        self.btn_gate_save = QPushButton("SAVE TO FW")
+        self.btn_gate_reset = QPushButton("RESET DEFAULTS")
+        gate_btns.addWidget(self.btn_gate_load)
+        gate_btns.addWidget(self.btn_gate_apply)
+        gate_btns.addWidget(self.btn_gate_save)
+        gate_btns.addWidget(self.btn_gate_reset)
+        gate_lay.addLayout(gate_btns)
+        self.lbl_gate_status = QLabel("Gate distance ready.")
+        self.lbl_gate_status.setObjectName("SmallMuted")
+        gate_lay.addWidget(self.lbl_gate_status)
+        cal_tab_lay.addWidget(gate_box)
+
         cal_box = QFrame()
         cal_box.setObjectName("Panel")
         cal_lay = QVBoxLayout(cal_box)
@@ -1916,6 +1967,10 @@ class SettingsWindow(QWidget):
         self.btn_cal_apply.clicked.connect(self._apply_calibration_from_inputs)
         self.btn_cal_save.clicked.connect(self.dashboard._save_firmware_calibration)
         self.btn_cal_reset.clicked.connect(self.dashboard._reset_firmware_calibration)
+        self.btn_gate_load.clicked.connect(self.dashboard._request_firmware_gate_distance)
+        self.btn_gate_apply.clicked.connect(self._apply_gate_distance_from_inputs)
+        self.btn_gate_save.clicked.connect(self.dashboard._save_firmware_gate_distance)
+        self.btn_gate_reset.clicked.connect(self.dashboard._reset_firmware_gate_distance)
         self.btn_wiz_run_all.clicked.connect(self._run_wizard_chain)
         self.btn_wiz_soft.clicked.connect(lambda: self._start_capture("soft"))
         self.btn_wiz_hard.clicked.connect(lambda: self._start_capture("hard"))
@@ -1936,6 +1991,17 @@ class SettingsWindow(QWidget):
             self.cal_contact_input.text(),
             self.cal_min_valid_input.text(),
         )
+
+    def _apply_gate_distance_from_inputs(self):
+        self.dashboard._apply_firmware_gate_distance_from_ui(
+            self.gate_distance_input.text()
+        )
+
+    def set_gate_distance_value(self, cm: float):
+        self.gate_distance_input.setText(f"{cm:.2f}")
+
+    def set_gate_distance_status(self, text: str):
+        self.lbl_gate_status.setText(text)
 
     def set_calibration_values(
         self,
@@ -4641,6 +4707,43 @@ class TennisDashboard(QMainWindow):
         if self._send_worker_command(CAL_RESET_COMMAND):
             self._set_calibration_status("Resetting calibration to defaults...")
 
+    def _set_gate_distance_status(self, text: str):
+        for w in self._hardware_settings_windows():
+            w.set_gate_distance_status(text)
+
+    def _refresh_gate_distance_ui(self):
+        for w in self._hardware_settings_windows():
+            w.set_gate_distance_value(self._fw_gate_distance_cm)
+
+    def _request_firmware_gate_distance(self):
+        if self._send_worker_command(GATE_GET_COMMAND):
+            self._set_gate_distance_status("Requested gate distance from firmware...")
+
+    def _apply_firmware_gate_distance_from_ui(self, cm_txt: str):
+        try:
+            cm = float(cm_txt)
+        except ValueError:
+            self._set_gate_distance_status("Gate distance invalid (numeric cm required).")
+            return
+        # Match the firmware-side bounds in firmware.ino so we fail fast
+        # on the host instead of waiting for a GATE:SET:ERR round-trip.
+        if cm < 0.5 or cm > 100.0:
+            self._set_gate_distance_status("Gate distance out of range (0.5 - 100.0 cm).")
+            return
+        cmd = f"GATE:SET:{cm:.2f}"
+        if self._send_worker_command(cmd):
+            self._set_gate_distance_status(
+                f"Applied {cm:.2f} cm in firmware RAM (use SAVE TO FW to persist)."
+            )
+
+    def _save_firmware_gate_distance(self):
+        if self._send_worker_command(GATE_SAVE_COMMAND):
+            self._set_gate_distance_status("Saving gate distance to firmware NVS...")
+
+    def _reset_firmware_gate_distance(self):
+        if self._send_worker_command(GATE_RESET_COMMAND):
+            self._set_gate_distance_status("Resetting gate distance to firmware default...")
+
     def _on_command_rx(self, text: str):
         if text.startswith("CAL:CFG:"):
             raw = text[len("CAL:CFG:"):]
@@ -4670,8 +4773,36 @@ class TennisDashboard(QMainWindow):
             try:
                 self._fw_gate_distance_cm = float(raw)
                 self.statusBar().showMessage(f"Gate distance loaded: {self._fw_gate_distance_cm:.3f} cm")
+                # Push the firmware truth into every open hardware
+                # settings window so the input box always reflects what
+                # the ESP32 actually has, not whatever the operator last
+                # typed.
+                self._refresh_gate_distance_ui()
+                self._set_gate_distance_status(
+                    f"Firmware gate distance: {self._fw_gate_distance_cm:.2f} cm"
+                )
             except ValueError:
-                pass
+                self._set_gate_distance_status("Gate distance parse error.")
+            return
+        if text.startswith("GATE:SAVE:"):
+            self._set_gate_distance_status(
+                "Gate distance saved to firmware." if text.endswith("OK")
+                else "Gate distance save failed."
+            )
+            return
+        if text.startswith("GATE:RESET:"):
+            self._set_gate_distance_status(
+                "Gate distance reset in firmware." if text.endswith("OK")
+                else "Gate distance reset failed."
+            )
+            return
+        if text.startswith("GATE:SET:"):
+            # GATE:CFG: arrives separately on success and updates the UI;
+            # this branch only narrates the OK/ERR result of the set itself.
+            self._set_gate_distance_status(
+                "Gate distance applied in firmware RAM." if text.endswith("OK")
+                else "Gate distance apply failed (out of range?)."
+            )
             return
         if text.startswith("RPM:CFG:"):
             raw = text[len("RPM:CFG:"):]
@@ -4728,12 +4859,14 @@ class TennisDashboard(QMainWindow):
             self._settings_window.setStyleSheet(self.styleSheet())
         self._settings_window.show_all_settings()
         self._refresh_calibration_ui()
+        self._refresh_gate_distance_ui()
         self._settings_window.refresh()
         self._settings_window.show()
         self._settings_window.raise_()
         self._settings_window.activateWindow()
         if self.mode == "LIVE" and self._worker:
             self._request_firmware_calibration()
+            self._request_firmware_gate_distance()
 
     def _open_hardware_settings_screen(self):
         if self._hardware_settings_window is None:
@@ -4741,12 +4874,14 @@ class TennisDashboard(QMainWindow):
             self._hardware_settings_window.setStyleSheet(self.styleSheet())
         self._hardware_settings_window.show_hardware_settings()
         self._refresh_calibration_ui()
+        self._refresh_gate_distance_ui()
         self._hardware_settings_window.refresh()
         self._hardware_settings_window.show()
         self._hardware_settings_window.raise_()
         self._hardware_settings_window.activateWindow()
         if self.mode == "LIVE" and self._worker:
             self._request_firmware_calibration()
+            self._request_firmware_gate_distance()
 
     def _open_app_settings_screen(self):
         if self._app_settings_window is None:
