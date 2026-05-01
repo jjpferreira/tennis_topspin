@@ -31,10 +31,10 @@ from __future__ import annotations
 # whenever the physical rig changes. Speed = distance / transit_time; getting
 # this wrong scales every recorded shot speed by the same factor.
 #
-# At 4.3 cm spacing the firmware's 500 us min-transit guard caps measurable
-# speed at ~310 km/h, which leaves plenty of headroom for serves. The
+# At 4.5 cm spacing the firmware's 500 us min-transit guard caps measurable
+# speed at ~324 km/h, which leaves plenty of headroom for serves. The
 # previous 1.0 cm rig silently dropped anything faster than 72 km/h.
-GATE_DISTANCE_CM: float = 4.3
+GATE_DISTANCE_CM: float = 4.5
 
 
 # Default RPM pulses-per-revolution for the main hall sensor. Mirrors

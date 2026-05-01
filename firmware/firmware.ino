@@ -205,9 +205,10 @@ static void updateGateSpeedState(uint32_t nowUs, bool gateAEdge, bool gateBEdge)
     }
 
     if (gateAEdge && gateBEdge) {
-        // Both edges in the same ~1ms loop tick — physically impossible for a
-        // 3cm gap unless the magnet is huge enough to trigger both sensors at
-        // once, which would yield a meaningless speed. Drop and reset.
+        // Both edges in the same ~1ms loop tick — physically implausible at
+        // the 4.5 cm centre-to-centre spacing unless the magnet is wide
+        // enough to trigger both sensors at once, which would yield a
+        // meaningless speed. Drop and reset.
         Logger::warn(String("[GATE] A and B fired in same tick t=") + nowUs +
                      "us — dropping (sensors too close or magnet too wide?)");
         g_gateSpeed.armed = GateSpeedState::LastEdge::None;

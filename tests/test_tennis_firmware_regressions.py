@@ -320,13 +320,13 @@ def test_tennis_sensor_logic_uses_debounce_edge_count_and_rate_window():
     assert "#define KY003_GATE_START_PIN" in config_h
     assert "#define KY003_GATE_END_PIN" in config_h
     # Gate spacing is the physical centre-to-centre distance between
-    # the two KY-003 sensors. At 4.3 cm the 500 us min-transit guard
-    # caps measurable speed at ~310 km/h (any serve fits). At an
+    # the two KY-003 sensors. At 4.5 cm the 500 us min-transit guard
+    # caps measurable speed at ~324 km/h (any serve fits). At an
     # earlier 1.0 cm rig the cap was 72 km/h which silently dropped
     # everything above a slow rally -- pin the new value so a future
     # config edit can't reintroduce that bug without flipping the
     # test red.
-    assert "#define KY003_GATE_DISTANCE_CM 4.3f" in config_h
+    assert "#define KY003_GATE_DISTANCE_CM 4.5f" in config_h
     assert "#define KY003_GATE_MIN_TRANSIT_US 500u" in config_h
     assert "#define KY003_GATE_MAX_TRANSIT_US 10000000u" in config_h
     assert "#define KY003_RPM_PULSES_PER_REV 1u" in config_h

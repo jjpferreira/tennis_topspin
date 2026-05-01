@@ -35,11 +35,11 @@
 // reflects ground truth, but the Python constant is the canonical "what the
 // rig is supposed to be" used for self-tests and offline analysis.
 //
-// Sizing rationale: at 4.3 cm spacing, the 500 us min-transit guard caps
-// measurable speed at 4.3*36000/500 = 309.6 km/h -- comfortably above any
+// Sizing rationale: at 4.5 cm spacing, the 500 us min-transit guard caps
+// measurable speed at 4.5*36000/500 = 324 km/h -- comfortably above any
 // real serve. A previous 1.0 cm rig silently dropped anything faster than
 // 72 km/h because transit times sub-500us were rejected as glitches.
-#define KY003_GATE_DISTANCE_CM 4.3f
+#define KY003_GATE_DISTANCE_CM 4.5f
 #define KY003_GATE_MIN_TRANSIT_US 500u
 // Allow slow hand-driven A->B magnet passes during bench validation. A real
 // ball pass takes <5ms (well under 1% of this ceiling), so widening the window
